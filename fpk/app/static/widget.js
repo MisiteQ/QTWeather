@@ -102,11 +102,14 @@
     var DIRECT_WEATHER = "https://api.open-meteo.com/v1/forecast";
     var DIRECT_GEOCODE = "https://geocoding-api.open-meteo.com/v1/search";
     // 设置持久化：存 NAS 服务端，跨浏览器/跨设备共享。
-    // 走 nginx 直接反代 /qweather-api/ → 127.0.0.1:5698/api/（绕开
-    // fnOS 应用网关，因为 widget.js 注入在桌面页，网关 session 不覆盖
-    // 注入页的 fetch，走 /app/<name>/api/... 会被网关 404）。
+    // widget.js 注入在桌面页（origin: https://<nas-host>），桌面页的
+    // session 不覆盖 /app/<name>/api/ 网关路径（网关 404）。改为走应用
+    // 子域 https://com~qweather-widget.<nas-host>/api/settings——子域
+    // 请求携带 session cookie（fnOS 主域 cookie 对子域生效），网关认证
+    // 通过；跨域凭据需 CORS 回显具体 Origin + Allow-Credentials:true。
     // localStorage 仅作即时回退与离线缓存。
-    var SETTINGS_API = "/qweather-api/settings";
+    var SETTINGS_API = location.protocol + "//com~qweather-widget." +
+        location.hostname + "/api/settings";
     // 城市搜索数据源：
     //   1) 内置中国行政区划坐标库（/qweather-cities.json，省/市/县三级 3200+，
     //      来源阿里 DataV GeoAtlas，脚本 _gen_cities.py 可再生成）——
@@ -301,29 +304,27 @@
         return Object.assign({}, DEFAULT_SETTINGS);
     }
 
-    // 从 NAS 服务端加载设置（登录后、挂载前调用）。
+    // 从 NAS 服务端加载设置（异步后台调用，不阻塞 widget 挂载）。
     // 成功 → 用服务端数据覆盖 settings 并重新渲染/定位。
+    // 失败 → 返回 null，调用方用 localStorage 回退。
     function loadSettingsFromServer() {
-        return fetch(SETTINGS_API, { credentials: "same-origin" })
+        return fetch(SETTINGS_API, { credentials: "include" })
             .then(function (r) {
                 if (!r.ok) return null;
                 return r.json();
             })
             .then(function (data) {
-                if (!data || !Object.keys(data).length) return null;
+                if (!data || !data.location) return null;
                 _serverSettingsLoaded = true;
-                // 合并：DEFAULT_SETTINGS ← 服务端数据（服务端为准）
                 var merged = Object.assign(
                     {}, DEFAULT_SETTINGS, data);
                 merged.schemaV = SCHEMA_VERSION;
-                // 旧版坐标迁移
                 if (!data.schemaV && merged.position) {
                     merged.position = {
                         x: merged.position.x - 66, y: merged.position.y
                     };
                 }
                 settings = merged;
-                // 同步到 localStorage（即时回退缓存）
                 try {
                     localStorage.setItem(
                         STORAGE_KEY, JSON.stringify(settings));
@@ -334,18 +335,16 @@
     }
 
     function saveSettings() {
-        // 即时写 localStorage（回退缓存）
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
         } catch (e) {}
-        // 防抖写服务端（避免拖动/调整大小时高频请求）
         if (_saveTimer) clearTimeout(_saveTimer);
         _saveTimer = setTimeout(function () {
             _saveTimer = null;
             try {
                 fetch(SETTINGS_API, {
                     method: "POST",
-                    credentials: "same-origin",
+                    credentials: "include",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(settings)
                 }).catch(function () {});
@@ -973,33 +972,17 @@
                 var hasRoot = root && document.documentElement.contains(root);
                 var hasShowBtn = document.getElementById("qweather-show");
                 if (!hasRoot && !hasShowBtn && settings.visible !== false) {
-                    // 首次进入桌面：先从 NAS 服务端拉取设置（跨浏览器/设备同步），
-                    // 成功后用服务端数据重建卡片；失败则用 localStorage 回退即时挂载。
+                    // 立即用 localStorage 设置挂载，后台异步拉取服务端设置
+                    buildWidget();
+                    loadWeatherWithCache();
+                    startAutoRefresh();
+                    startWatchdog();
                     if (!_serverSettingsLoaded) {
                         loadSettingsFromServer().then(function (srv) {
-                            if (srv) {
-                                // 服务端数据已覆盖 settings，重新应用
-                                if (root) {
-                                    // 已挂载（罕见竞态），只需重新定位/调整大小
-                                    applyServerSettingsRefresh();
-                                } else {
-                                    buildWidget();
-                                    loadWeatherWithCache();
-                                    startAutoRefresh();
-                                    startWatchdog();
-                                }
-                            } else {
-                                buildWidget();
-                                loadWeatherWithCache();
-                                startAutoRefresh();
-                                startWatchdog();
+                            if (srv && root) {
+                                applyServerSettingsRefresh();
                             }
                         });
-                    } else {
-                        buildWidget();
-                        loadWeatherWithCache();
-                        startAutoRefresh();
-                        startWatchdog();
                     }
                 }
             }
@@ -1435,20 +1418,18 @@
                     buildShowButton();
                     return;
                 }
-                // 已登录：尝试从 NAS 服务端拉取设置（跨浏览器/设备同步），
-                // 成功后用服务端数据挂载；失败则用 localStorage 回退即时挂载
+                // 立即用 localStorage 设置挂载（不阻塞），
+                // 后台异步从 NAS 服务端拉取设置，成功后覆盖刷新。
+                buildWidget();
+                loadWeatherWithCache();
+                startAutoRefresh();
+                startWatchdog();
                 if (!_serverSettingsLoaded) {
                     loadSettingsFromServer().then(function (srv) {
-                        buildWidget();
-                        loadWeatherWithCache();
-                        startAutoRefresh();
-                        startWatchdog();
+                        if (srv && root) {
+                            applyServerSettingsRefresh();
+                        }
                     });
-                } else {
-                    buildWidget();
-                    loadWeatherWithCache();
-                    startAutoRefresh();
-                    startWatchdog();
                 }
             };
 

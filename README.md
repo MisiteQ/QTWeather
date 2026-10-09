@@ -1,6 +1,6 @@
 # 天气预报 QWeather Widget
 <p>
-  <img alt="Version" src="https://img.shields.io/badge/version-2.3.0-blue">
+  <img alt="Version" src="https://img.shields.io/badge/version-2.3.1-blue">
   <img alt="fnOS" src="https://img.shields.io/badge/fnOS-x86%20%7C%20arm-success">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-orange">
   <img alt="Data" src="https://img.shields.io/badge/data-Open--Meteo-green">
@@ -8,7 +8,7 @@
 
 飞牛 fnOS 桌面天气预报小部件（FPK 原生应用）：直接注入飞牛桌面显示，**无窗口标题栏**，支持实时天气与未来 5 天预报、全球城市搜索切换、桌面自由拖动、卡片透明度调节、调整大小、隐藏 / 恢复。数据来源 [Open-Meteo](https://open-meteo.com/)（免费，**无需 API Key**），小部件前端直连 Open-Meteo，无需经 NAS 网关中转。
 
-- 当前版本：**v2.3.0**
+- 当前版本：**v2.3.1**
 - 作者：**Misite齊**
 - 适用平台：fnOS **x86 + arm**（最低系统版本 1.0.0）
 - 服务端口：**5698**
@@ -62,7 +62,7 @@ https://github.com/MisiteQ/FnDepot
 
 ### 方式二：手动安装 FPK
 
-1. 到 [Releases](https://github.com/MisiteQ/QWeather/releases) 下载 `com.qweather.widget-2.3.0-x86.fpk`
+1. 到 [Releases](https://github.com/MisiteQ/QWeather/releases) 下载 `com.qweather.widget-2.3.1-x86.fpk`
 2. 飞牛 OS → **应用中心** → 左下角 **手动安装** → 选择 fpk 文件
 3. 安装完成后，天气卡片即显示在飞牛桌面上（若未显示，强制刷新桌面 `Ctrl+Shift+R`）
 
@@ -91,7 +91,7 @@ python3 build_fp.py
 bash build.sh
 ```
 
-> 双架构发布：分别将 `platform` 设为 `x86` 和 `arm` 各打包一次，产物为 `com.qweather.widget-2.3.0-x86.fpk` 和 `com.qweather.widget-2.3.0-arm.fpk`。
+> 双架构发布：分别将 `platform` 设为 `x86` 和 `arm` 各打包一次，产物为 `com.qweather.widget-2.3.1-x86.fpk` 和 `com.qweather.widget-2.3.1-arm.fpk`。
 
 或直接运行：
 
@@ -140,6 +140,7 @@ fpk/
 
 | 版本 | 内容 |
 |---|---|
+| v2.3.1 | **紧急修复桌面 widget 不显示**：v2.3.0 的 nginx proxy_pass 可能导致 nginx 重启失败使注入页丢失；移除 proxy_pass，settings API 改走应用子域 + CORS 凭据；widget 立即用 localStorage 挂载不等服务端 API，即使 settings API 完全不可用 widget 也正常显示 |
 | v2.3.0 | **修复设置持久化失效 + 选城市面板关闭**：v2.2.9 的 settings API 走 fnOS 应用网关被 404 拒绝（widget.js 注入在桌面页，非应用 iframe），settings.json 从未写入 NAS；改为 nginx 直接反代 /qweather-api/ → 127.0.0.1:5698/api/ 绕开网关，设置真正落盘。选城市后不再自动关闭设置面板，用户可继续调整后点击保存再自行关闭 |
 | v2.2.9 | **设置跨设备同步**：位置、城市、透明度、大小等所有设置存入 NAS 服务端 settings.json，换浏览器/换电脑登录飞牛桌面后自动恢复上次设置 |
 | v2.2.8 | **城市搜索修复**：新增内置中国行政区划坐标库（省/市/县三级 3200+，来源阿里 DataV），国内城市本地秒搜且坐标准确，解决 Open-Meteo 对中国中小城市搜不到/搜错的问题；国际城市仍走 Open-Meteo，双源合并去重 |
