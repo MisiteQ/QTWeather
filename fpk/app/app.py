@@ -48,7 +48,7 @@ app = Flask(__name__, static_folder="static", static_url_path="")
 # 上传体上限：自定义字体文件最大 25MB（nginx 侧也要同步放开，见 QW_NGINX_CONF_CONTENT）
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
 
-GATEWAY_PREFIX = "/app/qweather"
+GATEWAY_PREFIX = "/app/com-qweather-widget"
 
 
 class _GatewayPrefixMiddleware:
@@ -234,9 +234,9 @@ def index_page():
 @app.route("/config")
 @app.route("/config.html")
 @app.route("/index.html")
-@app.route("/app/qweather/config")
-@app.route("/app/qweather/config.html")
-@app.route("/app/qweather/index.html")
+@app.route("/app/com-qweather-widget/config")
+@app.route("/app/com-qweather-widget/config.html")
+@app.route("/app/com-qweather-widget/index.html")
 def config_page():
     return _settings_page_response()
 

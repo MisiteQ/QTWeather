@@ -4,9 +4,9 @@
  * 支持：拖动、调整大小、模块独立开关、透明度、文字/图标/定位配色、
  *       字号调节、自定义字体、地点切换、自动刷新、隐藏/恢复
  *
- * v3.0.2: 修复网关路由前缀校验失败导致 Not Found——appname 含点号被 trim_app_center
- *         判定为非法 prefix，改为 /app/qweather 避开校验；修复启动时旧进程未清理
- *         导致端口冲突、健康检查误判成功的问题。
+ * v3.0.2: 修复 build_fp.py 漏打包 ui/ 目录导致设置界面 Not Found；
+ *         恢复 gatewayPrefix 为 /app/com-qweather-widget 匹配 trim_app_center
+ *         实际注册前缀；修复启动时旧进程未清理导致端口冲突、健康检查误判成功的问题。
  * v3.0.1: 修复设置窗口在局域网 / 域名访问下打不开——应用窗口改为 fnOS 网关
  *         unix socket 同源模式（https://<host>/app/com.qweather.widget/），
  *         不再直连仅监听 127.0.0.1 的 http://<host>:5698（外部设备根本不可

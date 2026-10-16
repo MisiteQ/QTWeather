@@ -1,7 +1,7 @@
 # 时钟天气 QTWeather
 
 <p>
-  <img alt="Version" src="https://img.shields.io/badge/version-3.0.0-blue">
+  <img alt="Version" src="https://img.shields.io/badge/version-3.0.2-blue">
   <img alt="fnOS" src="https://img.shields.io/badge/fnOS-x86%20%7C%20arm-success">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-orange">
   <img alt="Data" src="https://img.shields.io/badge/data-Open--Meteo-green">
@@ -9,7 +9,7 @@
 
 飞牛 fnOS 桌面**时钟 + 天气**小部件（FPK 原生应用）：直接注入飞牛桌面显示，**无窗口标题栏**。卡片为大号时钟（时：分 + 秒 + 公历 + 农历干支）与实时天气 / 未来 5 天预报，**两个模块可独立开关**；点击飞牛「已安装」中的应用图标打开**设置中心**（独立窗口），支持全球城市搜索、自动刷新间隔、桌面自由拖动、卡片背景透明度（**0% 可全透明**，文字 / 图标始终不透明）、文字与图标配色、**字号 50%–200%** 与**自定义字体上传**（ttf/otf/woff/woff2）。设置保存到 NAS 后卡片**数秒内热生效，无需刷新桌面**；设置中心内置「关于」页并可向 GitHub Releases **自动检查新版本（仅检查，不自动安装）**。数据来源 [Open-Meteo](https://open-meteo.com/)（免费，**无需 API Key**），小部件前端直连 Open-Meteo，无需经 NAS 网关中转。
 
-- 当前版本：**v3.0.0**
+- 当前版本：**v3.0.2**
 - 作者：**Misite齊**（[github.com/MisiteQ](https://github.com/MisiteQ)）
 - 仓库：[github.com/MisiteQ/QTWeather](https://github.com/MisiteQ/QTWeather)
 - 适用平台：fnOS **x86 + arm**（最低系统版本 1.0.0）
@@ -82,7 +82,7 @@ https://github.com/MisiteQ/FnDepot
 
 ### 方式二：手动安装 FPK
 
-1. 到 [Releases](https://github.com/MisiteQ/QTWeather/releases) 下载 `com.qweather.widget-3.0.0-x86.fpk`（arm 设备下载 `com.qweather.widget-3.0.0-arm.fpk`）
+1. 到 [Releases](https://github.com/MisiteQ/QTWeather/releases) 下载 `com.qweather.widget-3.0.2-x86.fpk`（arm 设备下载 `com.qweather.widget-3.0.2-arm.fpk`）
 2. 飞牛 OS → **应用中心** → 左下角 **手动安装** → 选择 fpk 文件
 3. 安装完成后，时钟天气卡片即显示在飞牛桌面上（若未显示，强制刷新桌面 `Ctrl+Shift+R`）；点击「已安装」中的应用图标可打开设置中心
 
@@ -111,7 +111,7 @@ python3 build_fp.py
 bash build.sh
 ```
 
-> 双架构发布：分别将 `platform` 设为 `x86` 和 `arm` 各打包一次，产物为 `com.qweather.widget-3.0.0-x86.fpk` 和 `com.qweather.widget-3.0.0-arm.fpk`。
+> 双架构发布：分别将 `platform` 设为 `x86` 和 `arm` 各打包一次，产物为 `com.qweather.widget-3.0.2-x86.fpk` 和 `com.qweather.widget-3.0.2-arm.fpk`。
 
 或直接运行：
 
@@ -139,7 +139,7 @@ fpk/
 │   │   ├── icon.png       设置中心 Logo / favicon（应用图标另有 ICON.PNG）
 │   │   └── cities_cn.json 内置中国城市坐标库
 │   └── ui/
-│       ├── config       飞牛桌面入口配置（iframe -> http://127.0.0.1:5698）
+│       ├── config       飞牛桌面入口配置（iframe -> fnOS 网关 /app/com-qweather-widget）
 │       └── images/      应用图标
 ├── cmd/                 飞牛生命周期脚本（安装 / 卸载 / 升级 / 启停 / 配置）
 ├── config/              飞牛权限与资源声明（以 root 运行）
@@ -163,6 +163,8 @@ fpk/
 
 | 版本 | 内容 |
 |---|---|
+| v3.0.2 | **修复设置界面 Not Found**：修复 build_fp.py 漏打包 `ui/` 目录导致 fpk 中缺少 `ui/config`，应用中心无法构造设置窗口 URL；恢复 `gatewayPrefix` 为 `/app/com-qweather-widget` 匹配 trim_app_center 实际注册前缀；修复启动时旧 gunicorn 进程未清理导致端口冲突、健康检查误判成功的问题 |
+| v3.0.1 | **修复设置窗口局域网/域名打不开**：应用窗口改为 fnOS 官方网关 unix socket 同源模式（`https://<host>/app/com.qweather.widget/`），不再直连仅监听 127.0.0.1 的 `http://<host>:5698`（外部设备不可达且 HTTPS 拦截 HTTP 混合内容）；设置中心天气/地理编码/更新检查统一改由 NAS 后端同源代理，规避网关 CSP 限制；nginx `/qweather-api/` 反代合并为统一前缀 |
 | v3.0.0 | **设置中心独立窗口 + 模块拆分 + 字号/自定义字体 + 更名换标 + 关于与更新检查**：①点击飞牛「已安装」图标弹出的独立窗口由提示页改为完整**设置中心**（显示模块 / 天气地点与自动刷新 / 外观 / 关于），桌面卡片移除齿轮与全部设置入口；②时间日期与天气**模块拆开独立开关**（至少保留一个）；③外观新增**字号调节**（50%–200%，步进 5 或直接输入，全部文字以 `calc(Npx * var(--qw-fs))` 等比缩放）与**自定义字体上传**（ttf/otf/woff/woff2，≤25MB，4 字节魔数校验，单字体槽存于 NAS `fonts/`，`@font-face` 带版本号破缓存，可恢复默认）；④应用更名「**时钟天气 QTWeather**」并启用全新青绿色时钟·太阳·云图标（64/256、设置中心 Logo 与 favicon）；⑤设置中心新增「**关于**」：版本、作者主页、仓库链接，打开时自动向 GitHub Releases 检查新版本、可手动检查，**仅检查不自动安装**；⑥卡片每 **4 秒轮询** NAS 设置热生效（位置字段只响应「重置为 null」，不与手动拖动打架）；⑦最小尺寸放宽到 240×120，整卡可拖；⑧设置页端点三上下文自适应探测（桌面 vhost 同源 `/qweather-*` / fnOS 网关 iframe 相对路径 / 5698 直连）；⑨窄宽度布局适配修复——此前紧凑模式误把整个预报区块（含「未来预报」标题）变成两列网格，导致标题被挤到左格、预报项溢出卡片右缘，现改为只对预报列表生效并采用自适应列数（窄了自动折行、绝不横向溢出），紧凑阈值由 250px 提到 280px 覆盖大字号；设置中心右侧实时预览底图由紫蓝渐变改为素雅浅冷灰渐变 |
 | v2.3.4 | **时钟卡片移植 + 断链修复 + 透明与三色配色 + 更新时间收纳**：①时间 · 天气模块移植自 fnmonitor——卡片主体改为时钟卡片样式，大号时钟（时:分 + 秒，1 秒节拍）+ 完整日期 + 农历（干支年 / 日、闰月），下接天气区块（离线内联 SVG 天气图标 + 温度 + 描述 + 体感 / 湿度 / 风速 / 气压单行汇总），保留 5 天预报、拖动、缩放、透明度与设置面板；天气图标由 emoji 改为按 WMO 代码选择的离线内联 SVG（夜间晴 / 局部多云显示月亮），并修正原实现农历年干支的地支错位（`(yc-4+1000)%12` 因 `1000%12≠0` 使地支整体偏移，2026 年会算成「丙戌」而非「丙午」）；②修复安装 / 升级后桌面反复断链：维护线程原先在 `conf.d` 缺失或不符时 `restart nginx`，会直接杀掉桌面页 WebSocket，改为**优先 `reload`**（优雅重载不断连接，同样触发 `trim_recover` 从 `ng.conf.zip` 恢复 `conf.d`），仍不符才 `restart` 兜底；③透明度滑杆下限由 20% 降到 **0%（可真正全透明）**，透明只作用于卡片底色——磨砂、投影与分隔线随透明度同步淡出，0% 不留磨砂残影，文字 / 图标始终完全不透明，次级文字不透明度整体抬高；④设置面板提供三个取色器——「文字颜色」「图标颜色」与独立的「定位图标」，经 CSS 变量 `--qw-text` / `--qw-icon` / `--qw-pin`（`pinColor` 字段，定位针默认红色 `#e74c3c`）分别控制，定位针与普通图标色互不影响，面板内即时预览、保存写入 NAS `settings.json`，面板自身固定深色避免极端配色下不可读；⑤卡片底部不再显示「更新于 HH:MM」，移入设置面板「自动刷新间隔」下方（文案「天气更新于 HH:MM」，随天气刷新同步），卡片本体更简洁，并清理微小模式对应死规则。定位仍只读 NAS 本机 settings.json，未引入按公网 IP 自动定位 |
 | v2.3.3 | **设置唯一数据源改为 NAS settings.json**：彻底移除浏览器 localStorage 参与设置读写——启动时读一次 NAS、改动后写一次 NAS（nginx 同源路由 `/qweather-settings` 读 + `/qweather-api/settings` 写，绕开对桌面页恒返回 invalid token 的应用网关），换浏览器 / 换电脑 / 清缓存后仍恢复 NAS 保存的城市；修复隐藏态（`visible=false`）下恢复按钮在桌面重建后丢失且永不再恢复的缺陷，且本次会话尚未建卡时点恢复按钮也能正确建卡；移除 v2.3.1 子域方案（该子域 DNS 不存在，请求被静默吞掉并回退 localStorage，是「换浏览器定位变回北京」的根因） |

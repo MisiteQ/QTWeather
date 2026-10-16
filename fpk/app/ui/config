@@ -6,8 +6,8 @@
             "type": "iframe",
             "protocol": "",
             "gatewaySocket": "app.sock",
-            "gatewayPrefix": "/app/qweather",
-            "url": "/app/qweather",
+            "gatewayPrefix": "/app/com-qweather-widget",
+            "url": "/app/com-qweather-widget",
             "allUsers": true,
             "control": {"accessPerm": "editable"}
         }
