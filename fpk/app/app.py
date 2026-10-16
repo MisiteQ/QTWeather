@@ -606,14 +606,25 @@ def _ensure_installed(allow_restart=True):
         _add_encrypted_entry(NG_CONF_ZIP, QW_CONF_ARCNAME, expected_conf, keys)
         detail.append("ng.conf.zip")
 
-    # 3. 运行中 nginx 的 conf.d：缺失或内容不符都需要 restart 恢复
+    # 3. 运行中 nginx 的 conf.d：缺失或内容不符时让 nginx 重新加载配置。
+    #    这里用 reload 而非 restart —— 实测 restart 会直接杀掉飞牛桌面页的
+    #    WebSocket 连接（桌面反复断链、要刷新多次才能恢复），而 reload 是
+    #    优雅重载，现有连接不受影响；并且 reload 同样会触发 trim_recover
+    #    从 ng.conf.zip 恢复 conf.d（第 2 步已把期望内容写进 zip），
+    #    实测单独一次 reload 即可既恢复文件、又让 nginx 载入新配置。
+    #    reload 之后内容仍不符，才退回 restart 兜底。
     confd_current = _read_file(QW_NGINX_CONF)
     if confd_current != QW_NGINX_CONF_CONTENT:
         if allow_restart and time.time() - _last_restart > 180:
-            _nginx_restart()
+            _nginx_reload()
+            time.sleep(2)
+            if _read_file(QW_NGINX_CONF) != QW_NGINX_CONF_CONTENT:
+                _nginx_restart()
+                time.sleep(3)
+                detail.append("nginx-restart")
+            else:
+                detail.append("nginx-reload")
             _last_restart = time.time()
-            time.sleep(3)
-            detail.append("nginx-restart")
         else:
             detail.append("restart-rate-limited")
 

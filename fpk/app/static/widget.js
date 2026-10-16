@@ -125,7 +125,10 @@
     var DEFAULT_SETTINGS = {
         schemaV: SCHEMA_VERSION,
         location: { name: "北京", latitude: 39.9042, longitude: 116.4074, country: "中国" },
-        opacity: 85,
+        opacity: 85,          // 仅作用于卡片底色（0 = 背景全透明，文字/图标始终不透明）
+        textColor: "#1a1a2e", // 文字颜色
+        iconColor: "#1a1a2e", // 图标颜色（天气/预报/齿轮）
+        pinColor: "#e74c3c",  // 定位图标颜色（城市名左侧定位针，独立配色）
         refreshInterval: 30,
         position: null,   // 相对桌面宿主容器的坐标 {x, y}
         visible: true,
@@ -133,39 +136,115 @@
         height: null
     };
 
-    // ===== WMO 天气代码映射 =====
+    // ===== WMO 天气代码 → 中文描述 =====
     var WEATHER_CODES = {
-        0: { desc: "晴", icon: "☀️" },
-        1: { desc: "大部晴朗", icon: "🌤️" },
-        2: { desc: "局部多云", icon: "⛅" },
-        3: { desc: "阴", icon: "☁️" },
-        45: { desc: "雾", icon: "🌫️" },
-        48: { desc: "雾凇", icon: "🌫️" },
-        51: { desc: "小毛毛雨", icon: "🌦️" },
-        53: { desc: "毛毛雨", icon: "🌦️" },
-        55: { desc: "大毛毛雨", icon: "🌧️" },
-        56: { desc: "冻毛毛雨", icon: "🌧️" },
-        57: { desc: "强冻毛毛雨", icon: "🌧️" },
-        61: { desc: "小雨", icon: "🌦️" },
-        63: { desc: "中雨", icon: "🌧️" },
-        65: { desc: "大雨", icon: "🌧️" },
-        66: { desc: "冻雨", icon: "🌧️" },
-        67: { desc: "强冻雨", icon: "🌧️" },
-        71: { desc: "小雪", icon: "🌨️" },
-        73: { desc: "中雪", icon: "🌨️" },
-        75: { desc: "大雪", icon: "❄️" },
-        77: { desc: "雪粒", icon: "❄️" },
-        80: { desc: "小阵雨", icon: "🌦️" },
-        81: { desc: "阵雨", icon: "🌧️" },
-        82: { desc: "强阵雨", icon: "⛈️" },
-        85: { desc: "小阵雪", icon: "🌨️" },
-        86: { desc: "强阵雪", icon: "❄️" },
-        95: { desc: "雷暴", icon: "⛈️" },
-        96: { desc: "雷暴伴小冰雹", icon: "⛈️" },
-        99: { desc: "雷暴伴大冰雹", icon: "⛈️" }
+        0: "晴", 1: "大部晴朗", 2: "局部多云", 3: "阴",
+        45: "雾", 48: "雾凇",
+        51: "小毛毛雨", 53: "毛毛雨", 55: "大毛毛雨",
+        56: "冻毛毛雨", 57: "强冻毛毛雨",
+        61: "小雨", 63: "中雨", 65: "大雨", 66: "冻雨", 67: "强冻雨",
+        71: "小雪", 73: "中雪", 75: "大雪", 77: "雪粒",
+        80: "小阵雨", 81: "阵雨", 82: "强阵雨",
+        85: "小阵雪", 86: "强阵雪",
+        95: "雷暴", 96: "雷暴伴小冰雹", 99: "雷暴伴大冰雹"
     };
+    function weatherDesc(code) {
+        return WEATHER_CODES[code] || "未知";
+    }
+
+    // ===== 天气图标：按 WMO 代码选离线内联 SVG（移植自 fnmonitor） =====
+    // 全离线、无外链；day=0（夜间）时晴/大部晴朗显示月亮。
+    function wxIconSvg(code, day) {
+        var c = +code;
+        var sun = '<circle cx="30" cy="16" r="6"/>' +
+            '<path d="M30 5.5v2.2M38.8 9.2l-1.6 1.6M41.5 16h-2.2M21.2 9.2l1.6 1.6"/>';
+        function cloud(x) {
+            x = x || 0;
+            return '<path d="M' + (14 + x) + ' 38h18a7 7 0 0 0 .9-13.94A9.5 9.5 0 0 0 ' +
+                (14.6 + x) + ' 26 6 6 0 0 0 ' + (14 + x) + ' 38Z" style="fill:#fff"/>';
+        }
+        var g;
+        if (c <= 1) {
+            g = day === 0
+                ? '<path d="M33 30A11 11 0 1 1 20 13a8.5 8.5 0 0 0 13 17Z"/>'
+                : '<circle cx="24" cy="24" r="8"/>' +
+                  '<path d="M24 8v3M24 37v3M8 24h3M37 24h3M12.7 12.7l2.1 2.1M33.2 33.2l2.1 2.1' +
+                  'M12.7 35.3l2.1-2.1M33.2 14.8l2.1-2.1"/>';
+        } else if (c === 2) g = sun + cloud();
+        else if (c === 3) g = cloud(2);
+        else if (c === 45 || c === 48) g = '<path d="M9 18h30M6 25h36M9 32h30"/>';
+        else if (c >= 95) g = cloud(2) + '<path d="m25 38-3 5h5l-3 5"/>';
+        else if ((c >= 71 && c <= 77) || c === 85 || c === 86) {
+            g = cloud(2) + '<path d="M18 42v.1M25 44v.1M32 42v.1"/>';
+        } else {
+            g = cloud(2) + '<path d="m18 41-1.5 3.5M25 41l-1.5 3.5M32 41l-1.5 3.5"/>';
+        }
+        return '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" ' +
+            'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + g + '</svg>';
+    }
+
+    // ===== 农历与干支（移植自 fnmonitor，算法原样保留） =====
+    function lunarInfo(y, m, d) {
+        var LUNAR_DAYS = [0x04bd8, 0x04ae0, 0x0a570, 0x054d5, 0x0d260, 0x0d950, 0x16554, 0x056a0, 0x09ad0, 0x055d2,
+            0x04ae0, 0x0a5b6, 0x0a4d0, 0x0d250, 0x1d255, 0x0b540, 0x0d6a0, 0x0ada2, 0x095b0, 0x14977,
+            0x04970, 0x0a4b0, 0x0b4b5, 0x06a50, 0x06d40, 0x1ab54, 0x02b60, 0x09570, 0x052f2, 0x04970,
+            0x06566, 0x0d4a0, 0x0ea50, 0x06e95, 0x05ad0, 0x02b60, 0x186e3, 0x092e0, 0x1c8d7, 0x0c950,
+            0x0d4a0, 0x1d8a6, 0x0b550, 0x056a0, 0x1a5b4, 0x025d0, 0x092d0, 0x0d2b2, 0x0a950, 0x0b557,
+            0x06ca0, 0x0b550, 0x15355, 0x04da0, 0x0a5b0, 0x14573, 0x052b0, 0x0a9a8, 0x0e950, 0x06aa0,
+            0x0aea6, 0x0ab50, 0x04b60, 0x0aae4, 0x0a570, 0x05260, 0x0f263, 0x0d950, 0x05b57, 0x056a0,
+            0x096d0, 0x04dd5, 0x04ad0, 0x0a4d0, 0x0d4d4, 0x0d250, 0x0d558, 0x0b540, 0x0b6a0, 0x195a6,
+            0x095b0, 0x049b0, 0x0a974, 0x0a4b0, 0x0b27a, 0x06a50, 0x06d40, 0x0af46, 0x0ab60, 0x09570,
+            0x04af5, 0x04970, 0x064b0, 0x074a3, 0x0ea50, 0x06b58, 0x055c0, 0x0ab60, 0x096d5, 0x092e0,
+            0x0c960, 0x0d954, 0x0d4a0, 0x0da50, 0x07552, 0x056a0, 0x0abb7, 0x025d0, 0x092d0, 0x0cab5,
+            0x0a950, 0x0b4a0, 0x0baa4, 0x0ad50, 0x055d9, 0x04ba0, 0x0a5b0, 0x15176, 0x052b0, 0x0a930,
+            0x07954, 0x06aa0, 0x0ad50, 0x05b52, 0x04b60, 0x0a6e6, 0x0a4e0, 0x0d260, 0x0ea65, 0x0d530,
+            0x05aa0, 0x076a3, 0x096d0, 0x04afb, 0x04ad0, 0x0a4d0, 0x1d0b6, 0x0d250, 0x0d520, 0x0dd45,
+            0x0b5a0, 0x056d0, 0x055b2, 0x049b0, 0x0a577, 0x0a4b0, 0x0aa50, 0x1b255, 0x06d20, 0x0ada0];
+        var LUNAR_MONTHS = ["正", "二", "三", "四", "五", "六", "七", "八", "九", "十", "冬", "腊"];
+        var LUNAR_DAYS2 = ["初一", "初二", "初三", "初四", "初五", "初六", "初七", "初八", "初九", "初十",
+            "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十",
+            "廿一", "廿二", "廿三", "廿四", "廿五", "廿六", "廿七", "廿八", "廿九", "三十"];
+        var GAN = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"];
+        var ZHI = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
+        function lYearDays(y) { var s = 348; for (var i = 0x8000; i > 0x8; i >>= 1) s += (LUNAR_DAYS[y - 1900] & i) ? 1 : 0; return s + leapDays(y); }
+        function leapMonth(y) { return LUNAR_DAYS[y - 1900] & 0xf; }
+        function leapDays(y) { if (leapMonth(y)) return (LUNAR_DAYS[y - 1900] & 0x10000) ? 30 : 29; return 0; }
+        function lMonthDays(y, m) { return (LUNAR_DAYS[y - 1900] & (0x10000 >> m)) ? 30 : 29; }
+        var base = Date.UTC(1900, 0, 31);
+        var offset = Math.floor((Date.UTC(y, m - 1, d) - base) / 86400000);
+        var yc = 1900, mc = 0, sub = 0;
+        // 注意：循环变量在每次迭代末尾自增，回补时必须用「本次实际扣减的天数」，
+        // 不能用自增后年份/月份的天数（相邻年/月天数不同会导致日期错位）
+        for (yc = 1900; yc < 2101 && offset > 0; yc++) { sub = lYearDays(yc); offset -= sub; }
+        if (offset < 0) { offset += sub; yc--; }
+        var leap = leapMonth(yc);
+        var isLeap = false;
+        for (mc = 1; mc < 13 && offset > 0; mc++) {
+            if (leap > 0 && mc === (leap + 1) && !isLeap) { --mc; isLeap = true; sub = leapDays(yc); }
+            else { sub = lMonthDays(yc, mc); if (isLeap) isLeap = false; }
+            offset -= sub;
+        }
+        if (offset === 0 && leap > 0 && mc === (leap + 1)) { if (isLeap) { isLeap = false; } else { isLeap = true; --mc; } }
+        if (offset < 0) { offset += sub; --mc; }
+        // 年干支：以 1900 年（庚子）为锚点。注意不能像 fnmonitor 那样写成
+        // (yc - 4 + 1000) % 12 —— 1000 % 12 = 4 ≠ 0，会把地支整体错位
+        // （2026 年会算成「丙戌」而非「丙午」）。yc ≥ 1900 时 yc-4 恒为正，
+        // 直接取模即可。
+        var gzY = GAN[(yc - 4) % 10] + ZHI[(yc - 4) % 12];
+        var md = LUNAR_MONTHS[mc - 1] + "月";
+        var dd = LUNAR_DAYS2[offset];
+        // 日干支：以 1949-10-01 甲子日（Unix 第 -7397 天）为锚点，常数 +17，正模避免负数
+        var dayNum = Math.floor(Date.UTC(y, m - 1, d) / 86400000);
+        var gzD = GAN[((dayNum + 17) % 10 + 10) % 10] + ZHI[((dayNum + 17) % 12 + 12) % 12];
+        return { y: yc, m: mc, d: offset + 1, monthName: md, dayName: dd, gzY: gzY, gzD: gzD, isLeap: isLeap };
+    }
+    function lunarText(now) {
+        var li = lunarInfo(now.getFullYear(), now.getMonth() + 1, now.getDate());
+        return (li.isLeap ? "闰" : "") + li.monthName + li.dayName + " · " + li.gzY + "年 " + li.gzD;
+    }
 
     var WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+    var _lunarDay = null;   // 农历按「天」缓存，避免每秒重算
 
     // ===== 全局状态 =====
     var settings = {};
@@ -183,57 +262,65 @@
     //   壁纸 0 ＜ 桌面图标(auto 非定位) ＜ 小组件 10 ＜ 原生窗口 10010 ＜
     //   右键菜单 10022 ＜ 全屏界面 1000001
     var SCOPED_CSS = [
-        "#qweather-root{position:absolute;z-index:10;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;color:#1a1a2e;pointer-events:none;user-select:none;}",
+        "#qweather-root{position:absolute;z-index:10;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;color:var(--qw-text,#1a1a2e);pointer-events:none;user-select:none;}",
         "#qweather-root *{margin:0;padding:0;box-sizing:border-box;}",
 
-        "#qweather-root .qw-card{pointer-events:auto;width:340px;min-width:280px;min-height:320px;border-radius:20px;background:rgba(255,255,255,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:0 8px 32px rgba(0,0,0,0.2);padding:18px 22px 16px;display:flex;flex-direction:column;transition:box-shadow 0.3s ease,transform 0.1s ease;position:relative;overflow:hidden;}",
-        "#qweather-root .qw-card:hover{box-shadow:0 12px 40px rgba(0,0,0,0.3);}",
-        "#qweather-root .qw-card.qw-compact .qw-details{display:block;}",
+        // 卡片底色 / 模糊 / 投影全部走 CSS 变量，由 applyOpacity() 统一驱动：
+        // 三者同步淡出，滑到 0% 时背景彻底透明且不留磨砂残影——而文字、
+        // 图标、分隔线之外的内容始终完全不透明（它们不吃这些变量）。
+        "#qweather-root .qw-card{pointer-events:auto;width:340px;min-width:280px;min-height:320px;border-radius:20px;background:rgba(255,255,255,var(--qw-bg,0.85));backdrop-filter:blur(var(--qw-blur,20px));-webkit-backdrop-filter:blur(var(--qw-blur,20px));box-shadow:0 8px 32px rgba(0,0,0,var(--qw-shadow,0.2));padding:18px 22px 16px;display:flex;flex-direction:column;transition:box-shadow 0.3s ease,transform 0.1s ease;position:relative;overflow:hidden;}",
+        "#qweather-root .qw-card:hover{box-shadow:0 12px 40px rgba(0,0,0,calc(var(--qw-shadow,0.2) * 1.5));}",
+        "#qweather-root .qw-card.qw-compact .qw-clock-lunar{display:none;}",
         "#qweather-root .qw-card.qw-compact .qw-forecast{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}",
-        "#qweather-root .qw-card.qw-tiny .qw-details{display:none;}",
-        "#qweather-root .qw-card.qw-tiny .qw-weather-desc,#qweather-root .qw-card.qw-tiny .qw-current .qw-temp-unit,#qweather-root .qw-card.qw-tiny .qw-update-time{display:none;}",
-        "#qweather-root .qw-card.qw-tiny .qw-current{margin-bottom:10px;}",
-        "#qweather-root .qw-card.qw-tiny .qw-temp-value{font-size:42px;}",
+        "#qweather-root .qw-card.qw-tiny .qw-clock-lunar,#qweather-root .qw-card.qw-tiny .qw-wx-sub,#qweather-root .qw-card.qw-tiny .qw-wx-text,#qweather-root .qw-card.qw-tiny .qw-forecast{display:none;}",
+        "#qweather-root .qw-card.qw-tiny .qw-clock-time{font-size:38px;}",
+        "#qweather-root .qw-card.qw-tiny .qw-wx-temp{font-size:34px;}",
 
         "#qweather-root .qw-header{display:flex;align-items:center;justify-content:space-between;cursor:grab;gap:8px;}",
         "#qweather-root .qw-header:active{cursor:grabbing;}",
         "#qweather-root .qw-location-info{display:flex;align-items:center;gap:6px;flex:1;min-width:0;}",
-        "#qweather-root .qw-location-icon{width:18px;height:18px;flex-shrink:0;color:#e74c3c;}",
+        "#qweather-root .qw-location-icon{width:18px;height:18px;flex-shrink:0;color:var(--qw-pin,#e74c3c);}",
         "#qweather-root .qw-location-name{font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
-        "#qweather-root .qw-date-block{display:flex;align-items:center;gap:8px;font-size:14px;opacity:0.72;white-space:nowrap;flex-shrink:0;}",
-        "#qweather-root .qw-date-block span:last-child{font-weight:700;letter-spacing:0.04em;}",
-        "#qweather-root .qw-icon-btn{width:30px;height:30px;border-radius:50%;border:none;background:rgba(0,0,0,0.05);cursor:pointer;display:flex;align-items:center;justify-content:center;color:#1a1a2e;flex-shrink:0;transition:background 0.2s;margin-left:8px;pointer-events:auto;}",
+        "#qweather-root .qw-icon-btn{width:30px;height:30px;border-radius:50%;border:none;background:rgba(0,0,0,0.05);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--qw-icon,#1a1a2e);flex-shrink:0;transition:background 0.2s;margin-left:8px;pointer-events:auto;}",
         "#qweather-root .qw-icon-btn svg{width:16px;height:16px;}",
         "#qweather-root .qw-icon-btn:hover{background:rgba(0,0,0,0.1);}",
 
-        "#qweather-root .qw-current{text-align:center;margin-bottom:16px;margin-top:4px;}",
-        "#qweather-root .qw-weather-icon{font-size:48px;line-height:1;margin-bottom:6px;filter:drop-shadow(0 2px 8px rgba(0,0,0,0.15));}",
-        "#qweather-root .qw-temp-main{display:flex;align-items:flex-start;justify-content:center;}",
-        "#qweather-root .qw-temp-value{font-size:56px;font-weight:200;line-height:1;letter-spacing:-2px;}",
-        "#qweather-root .qw-temp-unit{font-size:22px;font-weight:300;margin-top:4px;margin-left:2px;opacity:0.7;}",
-        "#qweather-root .qw-weather-desc{font-size:14px;opacity:0.7;margin-top:2px;}",
+        // ===== 时钟 + 农历（时钟卡片风格，移植自 fnmonitor） =====
+        "#qweather-root .qw-clock{margin-top:14px;}",
+        "#qweather-root .qw-clock-time{display:flex;align-items:flex-end;gap:6px;font-size:52px;font-weight:200;line-height:1;letter-spacing:-2px;}",
+        "#qweather-root .qw-clock-time .qw-sec{font-size:16px;font-weight:500;opacity:0.6;letter-spacing:0;margin-bottom:7px;}",
+        "#qweather-root .qw-clock-date{margin-top:10px;font-size:14px;font-weight:600;}",
+        "#qweather-root .qw-clock-lunar{margin-top:2px;font-size:12px;opacity:0.72;}",
 
-        "#qweather-root .qw-details{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;}",
-        "#qweather-root .qw-detail-item{background:rgba(0,0,0,0.05);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:1px;}",
-        "#qweather-root .qw-detail-label{font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px;}",
-        "#qweather-root .qw-detail-value{font-size:14px;font-weight:600;}",
+        // ===== 天气区块（图标 + 温度 + 描述 + 体感/湿度/风速/气压） =====
+        "#qweather-root .qw-wx{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;align-items:center;margin-top:16px;padding-top:14px;border-top:1px solid rgba(0,0,0,calc(var(--qw-shadow,0.2) * 0.4));}",
+        "#qweather-root .qw-wx-ico{grid-row:span 2;width:46px;height:46px;color:var(--qw-icon,#1a1a2e);}",
+        "#qweather-root .qw-wx-ico svg{width:46px;height:46px;stroke-width:1.4;}",
+        "#qweather-root .qw-wx-main{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}",
+        "#qweather-root .qw-wx-temp{font-size:30px;font-weight:300;line-height:1;letter-spacing:-1px;}",
+        "#qweather-root .qw-temp-unit{font-size:15px;font-weight:300;opacity:0.8;}",
+        "#qweather-root .qw-wx-text{font-size:14px;opacity:0.85;}",
+        "#qweather-root .qw-wx-sub{font-size:12px;opacity:0.72;}",
 
         "#qweather-root .qw-forecast{margin-bottom:8px;flex:1;}",
-        "#qweather-root .qw-forecast-title{font-size:11px;opacity:0.5;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;}",
+        "#qweather-root .qw-forecast-title{font-size:11px;opacity:0.62;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;}",
         "#qweather-root .qw-forecast-list{display:flex;justify-content:space-between;gap:2px;}",
         "#qweather-root .qw-forecast-item{flex:1;text-align:center;padding:6px 2px;border-radius:8px;transition:background 0.2s;}",
         "#qweather-root .qw-forecast-item:hover{background:rgba(0,0,0,0.05);}",
-        "#qweather-root .qw-forecast-day{font-size:10px;opacity:0.6;margin-bottom:2px;}",
-        "#qweather-root .qw-forecast-icon{font-size:18px;margin-bottom:2px;}",
+        "#qweather-root .qw-forecast-day{font-size:10px;opacity:0.72;margin-bottom:2px;}",
+        "#qweather-root .qw-forecast-icon{height:20px;margin-bottom:2px;color:var(--qw-icon,#1a1a2e);}",
+        "#qweather-root .qw-forecast-icon svg{width:20px;height:20px;stroke-width:1.6;}",
         "#qweather-root .qw-forecast-temp{font-size:11px;font-weight:600;}",
-        "#qweather-root .qw-forecast-temp .qw-min{opacity:0.5;font-weight:400;}",
+        "#qweather-root .qw-forecast-temp .qw-min{opacity:0.65;font-weight:400;}",
 
-        "#qweather-root .qw-update-time{text-align:center;font-size:11px;opacity:0.4;margin-top:6px;}",
+        // 天气更新时间已移入设置面板（刷新间隔下方），卡片本体不再显示
+        "#qweather-root .qw-update-time{font-size:11px;opacity:0.55;margin-top:8px;text-align:left;}",
 
         "#qweather-root .qw-resize-handle{position:absolute;right:4px;bottom:4px;width:18px;height:18px;cursor:nwse-resize;pointer-events:auto;z-index:5;border-radius:6px;background:rgba(91,110,225,0.04);}",
         "#qweather-root .qw-resize-handle::after{content:none;display:none;}",
 
-        "#qweather-root .qw-settings{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0.97);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);padding:16px 14px 12px;display:none;font-size:13px;z-index:10;border-radius:16px;pointer-events:auto;flex-direction:column;overflow:hidden;max-width:100%;max-height:100%;width:100%;height:100%;}",
+        // 设置面板恒定使用深色文字（始终盖在白色面板上），不随用户配色变化，保证可读。
+        "#qweather-root .qw-settings{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0.97);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);padding:16px 14px 12px;display:none;font-size:13px;color:#1a1a2e;z-index:10;border-radius:16px;pointer-events:auto;flex-direction:column;overflow:hidden;max-width:100%;max-height:100%;width:100%;height:100%;}",
         "#qweather-root .qw-settings-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid rgba(0,0,0,0.06);flex-shrink:0;}",
         "#qweather-root .qw-settings-title{font-size:16px;font-weight:600;color:#1a1a2e;}",
         "#qweather-root .qw-settings-close{width:28px;height:28px;border-radius:50%;border:none;background:rgba(0,0,0,0.05);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;color:#1a1a2e;transition:background 0.2s;pointer-events:auto;}",
@@ -254,6 +341,10 @@
         "#qweather-root .qw-result-item:hover{background:rgba(91,110,225,0.08);}",
         "#qweather-root .qw-result-sub{font-size:11px;opacity:0.5;margin-left:6px;}",
         "#qweather-root .qw-op-value{font-size:13px;font-weight:600;color:#5b6ee1;}",
+        // 同一分组内相邻的标签行（如“文字颜色/图标颜色”）自动留竖向间距
+        "#qweather-root .qw-setting-group .qw-label-row + .qw-label-row{margin-top:10px;}",
+        // 颜色选择器：去掉系统默认内边距，做成小圆角色块
+        "#qweather-root .qw-color{width:40px;height:26px;padding:0;border:1px solid rgba(0,0,0,0.12);border-radius:8px;background:none;cursor:pointer;pointer-events:auto;}",
         "#qweather-root .qw-slider{width:100%;height:5px;-webkit-appearance:none;appearance:none;background:rgba(0,0,0,0.1);border-radius:3px;outline:none;cursor:pointer;pointer-events:auto;}",
         "#qweather-root .qw-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:#5b6ee1;box-shadow:0 2px 6px rgba(91,110,225,0.4);border:none;cursor:pointer;transition:transform 0.15s;}",
         "#qweather-root .qw-slider::-webkit-slider-thumb:hover{transform:scale(1.15);}",
@@ -383,10 +474,6 @@
                 '    </svg>' +
                 '    <span class="qw-location-name" id="qw-location-name">加载中...</span>' +
                 '  </div>' +
-                '  <div class="qw-date-block" id="qw-date-block">' +
-                '    <span id="qw-date-label">--</span>' +
-                '    <span id="qw-time-label">--:--</span>' +
-                '  </div>' +
                 '  <button class="qw-icon-btn" id="qw-settings-btn" title="设置">' +
                 '    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
                 '      <circle cx="12" cy="12" r="3"/>' +
@@ -394,31 +481,34 @@
                 '    </svg>' +
                 '  </button>' +
                 '</div>' +
-                '<div class="qw-current">' +
-                '  <div class="qw-weather-icon" id="qw-weather-icon">☀️</div>' +
-                '  <div class="qw-temp-main">' +
-                '    <span class="qw-temp-value" id="qw-temp-value">--</span>' +
-                '    <span class="qw-temp-unit">°C</span>' +
+                '<div class="qw-clock">' +
+                '  <div class="qw-clock-time">' +
+                '    <span id="qw-time-label">--:--</span>' +
+                '    <span class="qw-sec" id="qw-sec-label">:--</span>' +
                 '  </div>' +
-                '  <div class="qw-weather-desc" id="qw-weather-desc">加载中...</div>' +
+                '  <div class="qw-clock-date" id="qw-date-label">--</div>' +
+                '  <div class="qw-clock-lunar" id="qw-lunar-label">农历 --</div>' +
+                '</div>' +
+                '<div class="qw-wx">' +
+                '  <div class="qw-wx-ico" id="qw-weather-icon"></div>' +
+                '  <div class="qw-wx-main">' +
+                '    <span class="qw-wx-temp" id="qw-temp-value">--</span>' +
+                '    <span class="qw-temp-unit">°C</span>' +
+                '    <span class="qw-wx-text" id="qw-weather-desc">加载中...</span>' +
+                '  </div>' +
+                '  <div class="qw-wx-sub" id="qw-wx-sub">体感 --° · 湿度 --% · 风速 -- km/h · 气压 -- hPa</div>' +
                 '</div>' +
                 '<div class="qw-forecast">' +
                 '  <div class="qw-forecast-title">未来预报</div>' +
                 '  <div class="qw-forecast-list" id="qw-forecast-list"></div>' +
                 '</div>' +
-                '<div class="qw-details">' +
-                '  <div class="qw-detail-item"><span class="qw-detail-label">体感</span><span class="qw-detail-value" id="qw-feels-like">--°</span></div>' +
-                '  <div class="qw-detail-item"><span class="qw-detail-label">湿度</span><span class="qw-detail-value" id="qw-humidity">--%</span></div>' +
-                '  <div class="qw-detail-item"><span class="qw-detail-label">风速</span><span class="qw-detail-value" id="qw-wind-speed">-- km/h</span></div>' +
-                '  <div class="qw-detail-item"><span class="qw-detail-label">气压</span><span class="qw-detail-value" id="qw-pressure">-- hPa</span></div>' +
-                '</div>' +
-                '<div class="qw-update-time" id="qw-update-time">--</div>' +
                 '<div class="qw-resize-handle" id="qw-resize-handle" title="拖动调整大小"></div>';
 
             root.appendChild(card);
             buildSettingsPanel();
 
             $("#qw-location-name").textContent = settings.location.name;
+            applyTheme();
             applyOpacity();
             updateClock();
 
@@ -762,8 +852,13 @@
                 '    <div class="qw-search-results" id="qw-search-results"></div>' +
                 '  </div>' +
                 '  <div class="qw-setting-group">' +
-                '    <label class="qw-label-row">卡片透明度<span class="qw-op-value" id="qw-op-value">85%</span></label>' +
-                '    <input type="range" class="qw-slider" id="qw-op-slider" min="20" max="100" value="85">' +
+                '    <label class="qw-label-row">背景不透明度（0%=全透明）<span class="qw-op-value" id="qw-op-value">85%</span></label>' +
+                '    <input type="range" class="qw-slider" id="qw-op-slider" min="0" max="100" value="85">' +
+                '  </div>' +
+                '  <div class="qw-setting-group">' +
+                '    <label class="qw-label-row">文字颜色<input type="color" class="qw-color" id="qw-text-color" value="#1a1a2e" title="点击选择文字颜色"></label>' +
+                '    <label class="qw-label-row">图标颜色<input type="color" class="qw-color" id="qw-icon-color" value="#1a1a2e" title="点击选择天气/预报/齿轮图标颜色"></label>' +
+                '    <label class="qw-label-row">定位图标<input type="color" class="qw-color" id="qw-pin-color" value="#e74c3c" title="点击选择城市名左侧定位针颜色"></label>' +
                 '  </div>' +
                 '  <div class="qw-setting-group">' +
                 '    <label class="qw-label-row">自动刷新间隔</label>' +
@@ -773,6 +868,7 @@
                 '      <option value="60">1 小时</option>' +
                 '      <option value="180">3 小时</option>' +
                 '    </select>' +
+                '    <div class="qw-update-time" id="qw-update-time">天气更新于 --:--</div>' +
                 '  </div>' +
                 '</div>' +
                 '<button class="qw-save-btn" id="qw-save-btn">保存设置</button>' +
@@ -802,10 +898,33 @@
                 applyOpacity();
             });
 
+            // 文字 / 图标 / 定位针颜色：改一下即时预览（保存按钮再统一写入 NAS）
+            var textColorInput = $("#qw-text-color");
+            var iconColorInput = $("#qw-icon-color");
+            var pinColorInput = $("#qw-pin-color");
+            textColorInput.value = settings.textColor || "#1a1a2e";
+            iconColorInput.value = settings.iconColor || "#1a1a2e";
+            pinColorInput.value = settings.pinColor || "#e74c3c";
+            textColorInput.addEventListener("input", function () {
+                settings.textColor = textColorInput.value;
+                applyTheme();
+            });
+            iconColorInput.addEventListener("input", function () {
+                settings.iconColor = iconColorInput.value;
+                applyTheme();
+            });
+            pinColorInput.addEventListener("input", function () {
+                settings.pinColor = pinColorInput.value;
+                applyTheme();
+            });
+
             $("#qw-rf-select").value = String(settings.refreshInterval);
 
             $("#qw-save-btn").addEventListener("click", function () {
                 settings.opacity = parseInt(opSlider.value, 10);
+                settings.textColor = textColorInput.value;
+                settings.iconColor = iconColorInput.value;
+                settings.pinColor = pinColorInput.value;
                 settings.refreshInterval = parseInt($("#qw-rf-select").value, 10);
                 saveSettings();
                 startAutoRefresh();
@@ -821,30 +940,52 @@
         });
     }
 
+    // 背景不透明度：只调卡片底色，文字/图标始终完全不透明。
+    //   滑到 0%  → 背景彻底透明（纯文字悬浮）
+    //   低值     → 磨砂（backdrop-filter）与投影同步淡出，不留生硬残影
+    // 三个变量都写在 root 上，卡片样式表统一引用（见 SCOPED_CSS）。
     function applyOpacity() {
-        if (card) {
-            card.style.background = "rgba(255,255,255," + (settings.opacity / 100) + ")";
-        }
+        if (!root) return;
+        var a = clamp(settings.opacity, 0, 100) / 100;
+        root.style.setProperty("--qw-bg", String(a));
+        root.style.setProperty("--qw-blur", (a * 20).toFixed(1) + "px");
+        root.style.setProperty("--qw-shadow", (a * 0.2).toFixed(3));
     }
 
+    // 文字 / 图标配色：写成 CSS 变量供样式表引用；设置面板自身固定深色不受影响。
+    // 定位针单独走 --qw-pin，与普通图标色 --qw-icon 互不影响。
+    function applyTheme() {
+        if (!root) return;
+        root.style.setProperty("--qw-text", settings.textColor || "#1a1a2e");
+        root.style.setProperty("--qw-icon", settings.iconColor || "#1a1a2e");
+        root.style.setProperty("--qw-pin", settings.pinColor || "#e74c3c");
+    }
+
+    // 时钟：时:分 + 秒 + 日期 + 农历（农历按天缓存，1 秒节拍不重复计算）
     function updateClock() {
         safe(function () {
             var now = new Date();
-            var dateLabel = document.getElementById("qw-date-label");
             var timeLabel = document.getElementById("qw-time-label");
-            if (dateLabel) {
-                dateLabel.textContent = now.toLocaleDateString("zh-CN", {
-                    month: "2-digit",
-                    day: "2-digit",
-                    weekday: "short"
-                }).replace(/\s+/g, "");
-            }
+            var secLabel = document.getElementById("qw-sec-label");
+            var dateLabel = document.getElementById("qw-date-label");
+            var lunarLabel = document.getElementById("qw-lunar-label");
             if (timeLabel) {
-                timeLabel.textContent = now.toLocaleTimeString("zh-CN", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    hour12: false
-                });
+                timeLabel.textContent =
+                    String(now.getHours()).padStart(2, "0") + ":" +
+                    String(now.getMinutes()).padStart(2, "0");
+            }
+            if (secLabel) {
+                secLabel.textContent = ":" + String(now.getSeconds()).padStart(2, "0");
+            }
+            if (dateLabel) {
+                dateLabel.textContent = now.getFullYear() + "年" +
+                    (now.getMonth() + 1) + "月" + now.getDate() + "日 " +
+                    WEEKDAYS[now.getDay()];
+            }
+            var dk = now.getFullYear() + "-" + now.getMonth() + "-" + now.getDate();
+            if (lunarLabel && _lunarDay !== dk) {
+                _lunarDay = dk;
+                lunarLabel.textContent = "农历 " + lunarText(now);
             }
         });
     }
@@ -1257,22 +1398,22 @@
             var daily = data.daily;
             if (!current || !daily) return;
 
-            var codeInfo = WEATHER_CODES[current.weather_code] ||
-                { desc: "未知", icon: "❓" };
-            $("#qw-weather-icon").textContent = codeInfo.icon;
+            var codeInfo = weatherDesc(current.weather_code);
+            $("#qw-weather-icon").innerHTML = wxIconSvg(current.weather_code, current.is_day);
             $("#qw-temp-value").textContent = Math.round(current.temperature_2m);
-            $("#qw-weather-desc").textContent = codeInfo.desc;
+            $("#qw-weather-desc").textContent = codeInfo;
 
-            $("#qw-feels-like").textContent = Math.round(current.apparent_temperature) + "°";
-            $("#qw-humidity").textContent = current.relative_humidity_2m + "%";
-            $("#qw-wind-speed").textContent = Math.round(current.wind_speed_10m) + " km/h";
-            $("#qw-pressure").textContent = Math.round(current.pressure_msl) + " hPa";
+            $("#qw-wx-sub").textContent =
+                "体感 " + Math.round(current.apparent_temperature) + "° · 湿度 " +
+                current.relative_humidity_2m + "% · 风速 " +
+                Math.round(current.wind_speed_10m) + " km/h · 气压 " +
+                Math.round(current.pressure_msl) + " hPa";
 
             renderForecast(daily);
             updateClock();
 
             var d = updateTime ? new Date(updateTime) : new Date();
-            $("#qw-update-time").textContent = "更新于 " +
+            $("#qw-update-time").textContent = "天气更新于 " +
                 String(d.getHours()).padStart(2, "0") + ":" +
                 String(d.getMinutes()).padStart(2, "0");
             updateCompactMode();
@@ -1348,13 +1489,12 @@
             for (var i = 0; i < Math.min(5, daily.time.length); i++) {
                 var date = new Date(daily.time[i]);
                 var dayName = i === 0 ? "今天" : WEEKDAYS[date.getDay()];
-                var info = WEATHER_CODES[daily.weather_code[i]] || { icon: "❓" };
 
                 var item = document.createElement("div");
                 item.className = "qw-forecast-item";
                 item.innerHTML =
                     '<div class="qw-forecast-day">' + dayName + '</div>' +
-                    '<div class="qw-forecast-icon">' + info.icon + '</div>' +
+                    '<div class="qw-forecast-icon">' + wxIconSvg(daily.weather_code[i], 1) + '</div>' +
                     '<div class="qw-forecast-temp">' +
                         Math.round(daily.temperature_2m_max[i]) + '°</div>' +
                     '<div class="qw-forecast-temp"><span class="qw-min">' +
@@ -1373,7 +1513,7 @@
     }
 
     if (typeof window !== "undefined") {
-        setInterval(updateClock, 30000);
+        setInterval(updateClock, 1000);
     }
 
     // ===== 初始化 =====
