@@ -1,0 +1,1007 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>时钟天气 · 设置</title>
+<link rel="icon" id="app-favicon" href="/qweather-icon.png">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;
+    background:#eef1fb;color:#1a1a2e;overflow:hidden;
+  }
+  header{
+    height:56px;display:flex;align-items:center;justify-content:space-between;
+    padding:0 22px;background:#fff;box-shadow:0 1px 0 rgba(0,0,0,0.05);flex-shrink:0;
+  }
+  header h1{font-size:17px;font-weight:600;display:flex;align-items:center;gap:9px;}
+  header h1 .logo{
+    width:28px;height:28px;border-radius:7px;object-fit:cover;
+    box-shadow:0 1px 4px rgba(31,45,90,0.25);
+  }
+  .head-actions{display:flex;align-items:center;gap:10px;}
+  .saved-tag{font-size:12px;color:#22a06b;display:none;align-items:center;gap:4px;}
+  .saved-tag.show{display:inline-flex;}
+  .dirty-dot{width:8px;height:8px;border-radius:50%;background:#f5a623;display:none;}
+  .dirty-dot.show{display:inline-block;}
+  main{height:calc(100% - 56px);display:flex;}
+  .form-pane{
+    width:440px;min-width:380px;height:100%;overflow-y:auto;padding:18px 20px 28px;
+    border-right:1px solid rgba(0,0,0,0.06);background:#f7f8fd;
+  }
+  .preview-pane{flex:1;height:100%;overflow:auto;padding:26px;display:flex;flex-direction:column;align-items:center;}
+  .group{
+    background:#fff;border-radius:14px;padding:16px 16px 14px;margin-bottom:14px;
+    box-shadow:0 1px 3px rgba(31,45,90,0.05);
+  }
+  .group h2{font-size:13px;font-weight:600;color:#5b6ee1;margin-bottom:12px;letter-spacing:.5px;}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:11px;}
+  .row.sub-row{padding-left:16px;position:relative;}
+  .row.sub-row::before{
+    content:"";position:absolute;left:4px;top:50%;width:6px;height:6px;
+    border-radius:50%;background:#c2c8de;transform:translateY(-50%);
+  }
+  .row:last-child{margin-bottom:0;}
+  .row-label{font-size:13px;color:#33384d;flex-shrink:0;}
+  .row-hint{font-size:11px;color:#9aa0b4;margin-top:2px;}
+  input[type=text],input[type=number],select{
+    border:1px solid rgba(0,0,0,0.12);border-radius:9px;padding:8px 11px;font-size:13px;
+    outline:none;color:#1a1a2e;background:#fff;width:100%;font-family:inherit;
+  }
+  input:focus,select:focus{border-color:#5b6ee1;box-shadow:0 0 0 3px rgba(91,110,225,.12);}
+  .search-box{display:flex;gap:8px;}
+  .btn{
+    border:none;border-radius:9px;padding:8px 15px;font-size:13px;font-weight:500;
+    cursor:pointer;white-space:nowrap;font-family:inherit;transition:background .15s,transform .1s;
+  }
+  .btn:active{transform:scale(.97);}
+  .btn-primary{background:#5b6ee1;color:#fff;}
+  .btn-primary:hover{background:#4a5dd0;}
+  .btn-ghost{background:#fff;color:#1a1a2e;border:1px solid rgba(0,0,0,0.14);}
+  .btn-ghost:hover{background:#f2f3f8;}
+  .btn-save{
+    background:linear-gradient(135deg,#5b6ee1,#7c5cbf);color:#fff;padding:9px 22px;font-weight:600;
+    box-shadow:0 3px 10px rgba(91,110,225,.28);
+  }
+  .btn-save:hover{filter:brightness(1.06);}
+  .btn-save:disabled{opacity:.5;cursor:not-allowed;box-shadow:none;}
+  .search-results{
+    margin-top:8px;border:1px solid rgba(0,0,0,.08);border-radius:10px;overflow:hidden;
+    max-height:148px;overflow-y:auto;display:none;background:#fff;
+  }
+  .result-item{padding:9px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid rgba(0,0,0,.04);}
+  .result-item:last-child{border-bottom:none;}
+  .result-item:hover{background:rgba(91,110,225,.07);}
+  .result-sub{font-size:11px;color:#99a;margin-left:6px;color:#9aa0b4;}
+  /* 开关 */
+  .switch{position:relative;width:42px;height:24px;flex-shrink:0;}
+  .switch input{position:absolute;opacity:0;width:100%;height:100%;cursor:pointer;margin:0;}
+  .switch .track{
+    position:absolute;inset:0;background:#cfd4e4;border-radius:12px;transition:background .18s;pointer-events:none;
+  }
+  .switch .thumb{
+    position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;
+    box-shadow:0 1px 3px rgba(0,0,0,.25);transition:left .18s;pointer-events:none;
+  }
+  .switch input:checked + .track{background:#5b6ee1;}
+  .switch input:checked ~ .thumb{left:20px;}
+  /* 滑杆 */
+  input[type=range]{
+    width:100%;height:5px;-webkit-appearance:none;appearance:none;background:rgba(0,0,0,.1);
+    border-radius:3px;outline:none;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:17px;height:17px;border-radius:50%;background:#5b6ee1;
+    box-shadow:0 2px 6px rgba(91,110,225,.4);border:none;cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb{width:17px;height:17px;border-radius:50%;background:#5b6ee1;border:none;cursor:pointer;}
+  .op-label{display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px;}
+  .op-val{font-weight:600;color:#5b6ee1;}
+  /* 取色器 */
+  input[type=color]{
+    width:42px;height:27px;padding:0;border:1px solid rgba(0,0,0,.12);border-radius:8px;
+    background:none;cursor:pointer;
+  }
+  /* 字号步进 */
+  .stepper{display:flex;align-items:center;gap:7px;}
+  .step-btn{
+    width:31px;height:31px;border-radius:8px;border:1px solid rgba(0,0,0,.14);background:#fff;
+    font-size:17px;line-height:1;cursor:pointer;color:#3a415c;font-weight:600;
+  }
+  .step-btn:hover{background:#f0f2fa;}
+  .stepper input{width:66px;text-align:center;padding:7px 4px;}
+  .stepper .unit{font-size:12px;color:#9aa0b4;}
+  /* 字体 */
+  .font-file{
+    width:100%;font-size:12px;margin-top:8px;
+  }
+  .font-file::file-selector-button{
+    border:none;border-radius:8px;padding:7px 13px;background:#eef0fc;color:#43508f;
+    font-size:12px;cursor:pointer;margin-right:10px;font-family:inherit;
+  }
+  .font-meta{font-size:12px;color:#667;margin-top:7px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .font-meta .fname{color:#1a1a2e;font-weight:500;}
+  .link-btn{
+    border:none;background:none;color:#e74c3c;font-size:12px;cursor:pointer;padding:0;font-family:inherit;
+  }
+  .link-btn:hover{text-decoration:underline;}
+  .update-time{font-size:12px;color:#8a90a6;margin-top:9px;}
+  /* 关于 */
+  .about-head{display:flex;align-items:center;gap:11px;margin-bottom:10px;}
+  .about-logo{width:42px;height:42px;border-radius:10px;object-fit:cover;box-shadow:0 2px 8px rgba(31,45,90,.18);}
+  .about-name{font-size:15px;font-weight:600;}
+  .about-en{font-size:12px;font-weight:500;color:#8a90a6;letter-spacing:.5px;}
+  .about-ver{font-size:12px;color:#667;margin-top:2px;}
+  .about-ver b{color:#5b6ee1;font-weight:600;}
+  .about-line{font-size:12px;color:#667;line-height:1.9;}
+  .about-line a{color:#5b6ee1;text-decoration:none;}
+  .about-line a:hover{text-decoration:underline;}
+  .about-update{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;}
+  .update-state{font-size:12px;color:#8a90a6;}
+  .update-state.ok{color:#22a06b;}
+  .update-state.err{color:#c0665f;}
+  .about-new{display:none;margin-top:8px;padding:9px 11px;border-radius:9px;background:#eef3ff;font-size:12px;color:#33407a;line-height:1.7;}
+  .about-new.show{display:block;}
+  .about-new a{color:#4359c9;font-weight:600;}
+  /* 预览 —— 素雅浅色壁纸衬托透明效果 */
+  .desktop-bg{
+    width:100%;max-width:520px;border-radius:18px;padding:24px;
+    background:linear-gradient(155deg,#eef1f3 0%,#dde4e8 52%,#ccd6dc 100%);
+    display:flex;justify-content:center;align-items:flex-start;min-height:430px;
+  }
+  .pv-hint{font-size:12px;color:#8a90a6;margin-top:12px;text-align:center;}
+  /* 预览卡片：与桌面 widget.js 卡片同款（.pv-* 避免与外层样式冲突） */
+  .pv-card{
+    width:300px;border-radius:20px;padding:16px 20px 14px;color:#1a1a2e;
+    background:rgba(255,255,255,.85);
+    box-shadow:0 8px 32px rgba(0,0,0,.2);
+    font-family:inherit;
+  }
+  .pv-header{display:flex;align-items:center;gap:6px;margin-bottom:2px;}
+  .pv-pin{width:16px;height:16px;color:#e74c3c;flex-shrink:0;}
+  .pv-city{font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .pv-clock{margin-top:12px;}
+  .pv-time{display:flex;align-items:flex-end;gap:5px;font-size:52px;font-weight:200;line-height:1;letter-spacing:-2px;}
+  .pv-sec{font-size:16px;font-weight:500;opacity:.6;margin-bottom:7px;}
+  .pv-date{margin-top:9px;font-size:14px;font-weight:600;}
+  .pv-lunar{margin-top:2px;font-size:12px;opacity:.72;}
+  .pv-wx{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:center;margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,0,0,.08);}
+  .pv-wxico{grid-row:span 2;width:42px;height:42px;color:#1a1a2e;}
+  .pv-wxmain{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;}
+  .pv-temp{font-size:30px;font-weight:300;line-height:1;}
+  .pv-unit{font-size:15px;font-weight:300;opacity:.8;}
+  .pv-wxtext{font-size:14px;opacity:.85;}
+  .pv-wxsub{font-size:12px;opacity:.72;}
+  .pv-forecast{display:flex;justify-content:space-between;margin-top:12px;}
+  .pv-fitem{flex:1;text-align:center;}
+  .pv-fday{font-size:10px;opacity:.72;}
+  .pv-fico{height:19px;color:#1a1a2e;margin:1px 0;}
+  .pv-ftemp{font-size:11px;font-weight:600;}
+  .pv-fmin{opacity:.65;font-weight:400;}
+  .pv-hidden-mask{
+    width:300px;border:2px dashed rgba(255,255,255,.65);border-radius:20px;padding:42px 16px;
+    text-align:center;color:rgba(255,255,255,.92);font-size:13px;line-height:1.9;
+  }
+  /* toast */
+  #toast{
+    position:fixed;top:20px;left:50%;transform:translateX(-50%);
+    background:rgba(26,26,46,.92);color:#fff;padding:9px 19px;border-radius:10px;font-size:13px;
+    opacity:0;pointer-events:none;transition:opacity .25s;z-index:99;
+  }
+  #toast.show{opacity:1;}
+  @media (max-width:860px){
+    body{overflow:auto;}
+    main{flex-direction:column;height:auto;}
+    .form-pane{width:100%;min-width:0;border-right:none;border-bottom:1px solid rgba(0,0,0,.06);}
+    .preview-pane{overflow:visible;}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><img class="logo" id="app-logo" src="/qweather-icon.png" alt="时钟天气">时钟天气 · 设置</h1>
+  <div class="head-actions">
+    <span class="dirty-dot" id="dirty-dot" title="有未保存的修改"></span>
+    <span class="saved-tag" id="saved-tag">✓ 已保存到 NAS</span>
+    <button class="btn btn-save" id="save-btn">保存设置</button>
+  </div>
+</header>
+<main>
+  <div class="form-pane">
+
+    <div class="group">
+      <h2>显示模块</h2>
+      <div class="row">
+        <div>
+          <div class="row-label">在桌面上显示卡片</div>
+          <div class="row-hint">总开关；隐藏后可随时在此重新打开</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="vis-switch"><span class="track"></span><span class="thumb"></span>
+        </label>
+      </div>
+      <div class="row sub-row">
+        <div>
+          <div class="row-label">时间日期</div>
+          <div class="row-hint">大号时钟、秒、公历日期与农历</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="m-clock"><span class="track"></span><span class="thumb"></span>
+        </label>
+      </div>
+      <div class="row sub-row">
+        <div>
+          <div class="row-label">天气预报</div>
+          <div class="row-hint">城市、实时天气与未来 5 天预报</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="m-weather"><span class="track"></span><span class="thumb"></span>
+        </label>
+      </div>
+      <div class="row" style="margin-top:6px;border-top:1px solid #eef0f6;padding-top:10px;">
+        <span class="row-label">位置错乱？</span>
+        <button class="btn btn-ghost" id="reset-pos-btn">重置卡片位置</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>天气地点</h2>
+      <div class="search-box">
+        <input type="text" id="loc-input" placeholder="输入城市名称搜索..." autocomplete="off">
+        <button class="btn btn-primary" id="search-btn">搜索</button>
+      </div>
+      <div class="search-results" id="search-results"></div>
+      <div class="row" style="margin-top:12px;border-top:1px solid #eef0f6;padding-top:12px;">
+        <span class="row-label">天气自动刷新间隔</span>
+        <select id="rf-select" style="width:150px;">
+          <option value="10">10 分钟</option>
+          <option value="30">30 分钟</option>
+          <option value="60">1 小时</option>
+          <option value="180">3 小时</option>
+        </select>
+      </div>
+      <div class="update-time" id="update-time">天气更新于 --:--</div>
+    </div>
+
+    <div class="group">
+      <h2>外观</h2>
+      <div class="op-label">
+        <span>背景不透明度（0% = 全透明）</span>
+        <span class="op-val" id="op-val">85%</span>
+      </div>
+      <input type="range" id="op-slider" min="0" max="100" step="1">
+      <div class="row" style="margin-top:13px;">
+        <span class="row-label">文字颜色</span>
+        <input type="color" id="c-text">
+      </div>
+      <div class="row">
+        <span class="row-label">图标颜色（天气 / 预报）</span>
+        <input type="color" id="c-icon">
+      </div>
+      <div class="row">
+        <span class="row-label">定位图标（城市名左侧）</span>
+        <input type="color" id="c-pin">
+      </div>
+      <div class="row" style="margin-top:13px;">
+        <span class="row-label">字体大小</span>
+        <div class="stepper">
+          <button type="button" class="step-btn" id="fs-minus" title="减小">−</button>
+          <input type="number" id="fs-input" min="50" max="200" step="5" title="直接输入 50–200 之间的数值">
+          <button type="button" class="step-btn" id="fs-plus" title="增大">+</button>
+          <span class="unit">%</span>
+        </div>
+      </div>
+      <div class="row" style="align-items:flex-start;">
+        <div>
+          <div class="row-label">自定义字体</div>
+          <div class="row-hint">标准字体文件：ttf / otf / woff / woff2，≤ 25MB</div>
+        </div>
+      </div>
+      <input type="file" class="font-file" id="font-file" accept=".ttf,.otf,.woff,.woff2">
+      <div class="font-meta" id="font-meta"></div>
+    </div>
+
+    <div class="group">
+      <h2>关于</h2>
+      <div class="about-head">
+        <img class="about-logo" id="about-logo" src="/qweather-icon.png" alt="时钟天气 QTWeather">
+        <div>
+          <div class="about-name">时钟天气 <span class="about-en">QTWeather</span></div>
+          <div class="about-ver">当前版本 <b id="app-version">v3.0.0</b></div>
+        </div>
+      </div>
+      <div class="about-line">作者：Misite齊 · <a href="https://github.com/MisiteQ" target="_blank" rel="noopener">github.com/MisiteQ</a></div>
+      <div class="about-line">仓库：<a href="https://github.com/MisiteQ/QTWeather" target="_blank" rel="noopener">github.com/MisiteQ/QTWeather</a></div>
+      <div class="about-line">天气数据：Open-Meteo（无需 API Key）</div>
+      <div class="about-update">
+        <span class="update-state" id="update-state">打开时自动检查更新…</span>
+        <button class="btn btn-ghost" id="check-update-btn" style="padding:6px 12px;font-size:12px;">检查更新</button>
+      </div>
+      <div class="about-new" id="update-new"></div>
+    </div>
+
+  </div>
+
+  <aside class="preview-pane">
+    <div class="desktop-bg" id="desktop-bg">
+      <div class="pv-card" id="pv-card">
+        <div class="pv-header" id="pv-header">
+          <svg class="pv-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+          </svg>
+          <span class="pv-city" id="pv-city">--</span>
+        </div>
+        <div class="pv-clock" id="pv-clock">
+          <div class="pv-time"><span id="pv-time">--:--</span><span class="pv-sec" id="pv-sec">:--</span></div>
+          <div class="pv-date" id="pv-date">--</div>
+          <div class="pv-lunar" id="pv-lunar">农历 --</div>
+        </div>
+        <div class="pv-wx" id="pv-wx">
+          <div class="pv-wxico" id="pv-icon"></div>
+          <div class="pv-wxmain">
+            <span class="pv-temp" id="pv-temp">--</span><span class="pv-unit">°C</span>
+            <span class="pv-wxtext" id="pv-desc">--</span>
+          </div>
+          <div class="pv-wxsub" id="pv-sub"></div>
+        </div>
+        <div class="pv-forecast" id="pv-forecast"></div>
+      </div>
+    </div>
+    <p class="pv-hint">实时预览 · 点击「保存设置」后桌面卡片自动同步（无需刷新桌面）</p>
+  </aside>
+</main>
+<div id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+
+// ===== 常量 =====
+// 设置中心可能运行在三种上下文：①桌面 vhost（/qweather-* 同源 alias/反代，
+// 桌面卡片同款）；②fnOS 网关 iframe（/app/<name>/api/*，相对路径）；
+// ③直接访问应用端口 5698（/api/*）。启动时探测，首个可用的生效。
+var API_PRESETS = (function(){
+  // 网关 iframe 下文档可能是 /app/<name>/ 或 /app/<name>/config.html，
+  // 相对 URL 必须相对当前目录解析，否则会错升到 /app/api/*。
+  var p = location.pathname;
+  var base = /\/$/.test(p) ? p : p.replace(/[^/]*$/, "");
+  return [
+    { get: "/qweather-settings", post: "/qweather-api/settings", font: "/qweather-api/font", cities: "/qweather-cities.json", icon: "/qweather-icon.png" },
+    { get: base + "api/settings", post: base + "api/settings", font: base + "api/font", cities: base + "cities_cn.json", icon: base + "icon.png" },
+    { get: "/api/settings", post: "/api/settings", font: "/api/font", cities: "/cities_cn.json", icon: "/icon.png" }
+  ];
+})();
+var api = API_PRESETS[0];
+var APP_VERSION = "3.0.0";
+var REPO_URL = "https://github.com/MisiteQ/QTWeather";
+var RELEASE_API = "https://api.github.com/repos/MisiteQ/QTWeather/releases/latest";
+var DIRECT_WEATHER = "https://api.open-meteo.com/v1/forecast";
+var DIRECT_GEOCODE = "https://geocoding-api.open-meteo.com/v1/search";
+var CN_CITIES_CACHE_KEY = "qweather_widget_cities_v1";
+
+function probeApiBase() {
+  var i = 0;
+  function applyIcon() {
+    ["app-logo", "about-logo"].forEach(function(id){
+      var el = document.getElementById(id);
+      if (el) el.src = api.icon;
+    });
+    var fav = document.getElementById("app-favicon");
+    if (fav) fav.href = api.icon;
+  }
+  function tryNext() {
+    if (i >= API_PRESETS.length) { applyIcon(); return Promise.resolve(); }
+    var p = API_PRESETS[i++];
+    return fetch(p.get, { cache: "no-store", credentials: "same-origin" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json().then(function () { api = p; applyIcon(); });
+      })
+      .catch(tryNext);
+  }
+  return tryNext();
+}
+
+// ===== 版本更新检查（只检查，不自动下载/安装） =====
+function cmpVer(a, b) {
+  var pa = String(a).split(/[.+\-]/), pb = String(b).split(/[.+\-]/);
+  var n = Math.max(pa.length, pb.length);
+  for (var i = 0; i < n; i++) {
+    var x = parseInt(pa[i], 10), y = parseInt(pb[i], 10);
+    if (isNaN(x)) x = 0; if (isNaN(y)) y = 0;
+    if (x !== y) return x - y;
+  }
+  return 0;
+}
+function checkUpdate(manual) {
+  var state = document.getElementById("update-state");
+  var box = document.getElementById("update-new");
+  var btn = document.getElementById("check-update-btn");
+  if (state) { state.className = "update-state"; state.textContent = "正在检查更新…"; }
+  if (box) { box.className = "about-new"; box.innerHTML = ""; }
+  if (btn) btn.disabled = true;
+  fetch(RELEASE_API + "?ts=" + Date.now(), { cache: "no-store" })
+    .then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(function (d) {
+      var tag = String(d.tag_name || d.name || "").replace(/^[vV]/, "").trim();
+      if (!tag) {
+        if (state) { state.className = "update-state"; state.textContent = "暂未发布任何版本"; }
+        return;
+      }
+      if (cmpVer(tag, APP_VERSION) > 0) {
+        if (state) { state.className = "update-state"; state.textContent = "发现新版本 v" + tag; }
+        if (box) {
+          var notes = (d.body || "").trim();
+          if (notes.length > 360) notes = notes.slice(0, 360) + "…";
+          // 简单转义，防止 release notes 里的 HTML 注入
+          var esc = notes.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+                         .replace(/\r\n|\n/g, "<br>");
+          box.innerHTML = "<b>v" + tag + "</b>" + (esc ? "<br>" + esc : "") +
+            '<br><a href="' + (d.html_url || REPO_URL + "/releases") +
+            '" target="_blank" rel="noopener">前往 GitHub 下载更新（不会自动安装）</a>';
+          box.className = "about-new show";
+        }
+      } else {
+        if (state) { state.className = "update-state ok";
+          state.textContent = "已是最新版本 v" + APP_VERSION +
+            (tag !== APP_VERSION ? "（最新发布 v" + tag + "）" : ""); }
+      }
+    })
+    .catch(function () {
+      if (state) { state.className = "update-state err";
+        state.textContent = manual ? "检查失败：无法连接 GitHub，请稍后重试"
+                                   : "自动检查未完成（网络不可达）"; }
+    })
+    .then(function () { if (btn) btn.disabled = false; });
+}
+
+var DEFAULT_SETTINGS = {
+  schemaV: 2,
+  location: { name: "北京", latitude: 39.9042, longitude: 116.4074, country: "中国" },
+  opacity: 85,
+  textColor: "#1a1a2e",
+  iconColor: "#1a1a2e",
+  pinColor: "#e74c3c",
+  fontScale: 100,        // 字号百分比（50–200）
+  fontName: null,        // 用户上传字体的原始文件名（null = 系统默认字体）
+  fontExt: null,
+  fontV: null,
+  showClock: true,       // 时间日期模块
+  showWeather: true,     // 天气预报模块
+  refreshInterval: 30,
+  position: null,
+  visible: true,
+  width: 340,
+  height: null
+};
+
+// ===== DOM =====
+function $(id){ return document.getElementById(id); }
+var els = {
+  mClock: $("m-clock"), mWeather: $("m-weather"),
+  locInput: $("loc-input"), searchBtn: $("search-btn"), searchResults: $("search-results"),
+  opSlider: $("op-slider"), opVal: $("op-val"),
+  cText: $("c-text"), cIcon: $("c-icon"), cPin: $("c-pin"),
+  fsMinus: $("fs-minus"), fsPlus: $("fs-plus"), fsInput: $("fs-input"),
+  fontFile: $("font-file"), fontMeta: $("font-meta"),
+  rfSelect: $("rf-select"), updateTime: $("update-time"),
+  visSwitch: $("vis-switch"), resetPos: $("reset-pos-btn"),
+  saveBtn: $("save-btn"), savedTag: $("saved-tag"), dirtyDot: $("dirty-dot"),
+  pvCard: $("pv-card"), pvHeader: $("pv-header"), pvClock: $("pv-clock"),
+  pvWx: $("pv-wx"), pvForecast: $("pv-forecast"), desktopBg: $("desktop-bg"),
+  pvCity: $("pv-city"), pvTime: $("pv-time"), pvSec: $("pv-sec"),
+  pvDate: $("pv-date"), pvLunar: $("pv-lunar"), pvIcon: $("pv-icon"),
+  pvTemp: $("pv-temp"), pvDesc: $("pv-desc"), pvSub: $("pv-sub")
+};
+
+// ===== 状态 =====
+var saved = null;     // NAS 上的完整设置（含位置/尺寸等本页不编辑的字段）
+var form = null;      // 编辑态
+var cnCities = null;
+var previewWeatherTs = null;
+
+function clone(o){ return JSON.parse(JSON.stringify(o)); }
+function stable(o){ return JSON.stringify(o, Object.keys(o).sort()); }
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+function toast(msg){
+  var t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(t._timer);
+  t._timer = setTimeout(function(){ t.classList.remove("show"); }, 2200);
+}
+
+// ===== 设置读写 =====
+function loadSettings(){
+  return fetch(api.get, { cache: "no-store", credentials: "same-origin" })
+    .then(function(r){ return r.ok ? r.json() : {}; })
+    .then(function(data){
+      var base = Object.assign({}, DEFAULT_SETTINGS);
+      // 逐字段合并，保证嵌套对象（location）缺字段时也有默认值
+      Object.keys(data || {}).forEach(function(k){ base[k] = data[k]; });
+      if (!base.location) base.location = clone(DEFAULT_SETTINGS.location);
+      base.fontScale = clamp(parseInt(base.fontScale, 10) || 100, 50, 200);
+      return base;
+    })
+    .catch(function(){ return clone(DEFAULT_SETTINGS); });
+}
+
+function postSettings(showOk){
+  return fetch(api.post, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(form)
+  }).then(function(r){
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }).then(function(d){
+    if (!d || d.ok !== true) throw new Error((d && d.error) || "保存失败");
+    saved = clone(form);
+    markDirty();
+    if (showOk) toast("设置已保存，桌面卡片已同步");
+  }).catch(function(e){
+    toast("保存到 NAS 失败：" + (e.message || e));
+  });
+}
+
+function markDirty(){
+  var dirty = stable(form) !== stable(saved);
+  els.saveBtn.disabled = !dirty;
+  els.dirtyDot.classList.toggle("show", dirty);
+  els.savedTag.classList.toggle("show", !dirty);
+}
+
+// ===== 城市搜索（内置中国城市库 + Open-Meteo） =====
+function normName(s){ return (s || "").toLowerCase().replace(/\s+/g, ""); }
+
+function loadCnCities(){
+  if (cnCities) return Promise.resolve(cnCities);
+  try {
+    var raw = localStorage.getItem(CN_CITIES_CACHE_KEY);
+    if (raw) { cnCities = JSON.parse(raw); if (cnCities && cnCities.length) return Promise.resolve(cnCities); }
+  } catch(e){}
+  return fetch(api.cities, { credentials: "same-origin" }).then(function(r){ return r.json(); })
+    .then(function(list){
+      cnCities = list || [];
+      try { localStorage.setItem(CN_CITIES_CACHE_KEY, JSON.stringify(cnCities)); } catch(e){}
+      return cnCities;
+    }).catch(function(){ cnCities = []; return cnCities; });
+}
+
+function searchCn(q){
+  var out = [], qn = normName(q);
+  cnCities.forEach(function(it){
+    var rec = { name: it[0], admin1: it[1], country: "中国", latitude: it[2], longitude: it[3], local: true };
+    var n = normName(it[0]);
+    if (n === qn) out.unshift(rec);
+    else if (it[0].indexOf(q) === 0) out.push(rec);
+  });
+  var contains = [];
+  cnCities.forEach(function(it){
+    if (it[0].indexOf(q) > 0)
+      contains.push({ name: it[0], admin1: it[1], country: "中国", latitude: it[2], longitude: it[3], local: true });
+  });
+  return out.concat(contains);
+}
+
+function searchOm(name){
+  return fetch(DIRECT_GEOCODE + "?name=" + encodeURIComponent(name) + "&count=10&language=zh&format=json")
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      return (data.results || []).map(function(it){
+        return { name: it.name, admin1: it.admin1 || "", country: it.country || "",
+                 latitude: it.latitude, longitude: it.longitude, local: false };
+      });
+    }).catch(function(){ return []; });
+}
+
+function mergeResults(a, b, q){
+  var seen = {}, out = [], qn = normName(q);
+  function push(it){
+    var nk = it.country + "|" + normName(it.name);
+    var ck = Math.round(it.latitude*10) + "," + Math.round(it.longitude*10);
+    if (seen[nk] || seen[ck]) return;
+    seen[nk] = seen[ck] = 1;
+    out.push(it);
+  }
+  a.forEach(push); b.forEach(push);
+  out.sort(function(x, y){
+    var rx = (normName(x.name) === qn ? 0 : (x.name.indexOf(q) === 0 ? 2 : 4)) + (x.local ? 0 : 1);
+    var ry = (normName(y.name) === qn ? 0 : (y.name.indexOf(q) === 0 ? 2 : 4)) + (y.local ? 0 : 1);
+    return rx - ry;
+  });
+  return out.slice(0, 10);
+}
+
+function doSearch(){
+  var q = els.locInput.value.trim();
+  if (!q) { toast("请输入地点名称"); return; }
+  els.searchResults.style.display = "block";
+  els.searchResults.innerHTML = '<div class="result-item" style="color:#9aa0b4">搜索中...</div>';
+  Promise.all([loadCnCities(), searchOm(q)]).then(function(res){
+    renderResults(mergeResults(searchCn(q), res[1], q));
+  }).catch(function(){
+    els.searchResults.innerHTML = '<div class="result-item" style="color:#e74c3c">搜索失败</div>';
+  });
+}
+
+function renderResults(list){
+  els.searchResults.innerHTML = "";
+  if (!list.length) {
+    els.searchResults.innerHTML = '<div class="result-item" style="color:#9aa0b4">未找到相关地点</div>';
+    els.searchResults.style.display = "block";
+    return;
+  }
+  list.forEach(function(it){
+    var div = document.createElement("div");
+    div.className = "result-item";
+    var sub = [it.admin1, it.country].filter(function(v,i,a){ return v && a.indexOf(v) === i; }).join(" · ");
+    div.innerHTML = it.name + (sub ? '<span class="result-sub">' + sub + "</span>" : "");
+    div.addEventListener("click", function(){
+      form.location = { name: it.name, latitude: it.latitude, longitude: it.longitude, country: it.country || "" };
+      els.searchResults.style.display = "none";
+      els.locInput.value = it.name;
+      // 城市切换立即保存并刷新（与旧版交互一致）
+      postSettings(false).then(function(){ if (saved) fetchPreviewWeather(); });
+      renderPreview(); markDirty();
+      toast("已切换到 " + it.name);
+    });
+    els.searchResults.appendChild(div);
+  });
+  els.searchResults.style.display = "block";
+}
+
+// ===== 天气图标 SVG（与 widget.js 一致） =====
+var WX = {0:"晴",1:"大部晴朗",2:"局部多云",3:"阴",45:"雾",48:"雾凇",51:"小毛毛雨",53:"毛毛雨",55:"大毛毛雨",
+  56:"冻毛毛雨",57:"强冻毛毛雨",61:"小雨",63:"中雨",65:"大雨",66:"冻雨",67:"强冻雨",71:"小雪",73:"中雪",
+  75:"大雪",77:"雪粒",80:"小阵雨",81:"阵雨",82:"强阵雨",85:"小阵雪",86:"强阵雪",95:"雷暴",
+  96:"雷暴伴小冰雹",99:"雷暴伴大冰雹"};
+function wxSvg(code, day){
+  var c = +code;
+  var sun = '<circle cx="30" cy="16" r="6"/><path d="M30 5.5v2.2M38.8 9.2l-1.6 1.6M41.5 16h-2.2M21.2 9.2l1.6 1.6"/>';
+  function cloud(x){ x=x||0; return '<path d="M'+(14+x)+' 38h18a7 7 0 0 0 .9-13.94A9.5 9.5 0 0 0 '+(14.6+x)+' 26 6 6 0 0 0 '+(14+x)+' 38Z" style="fill:#fff"/>'; }
+  var g;
+  if (c <= 1) g = day === 0
+      ? '<path d="M33 30A11 11 0 1 1 20 13a8.5 8.5 0 0 0 13 17Z"/>'
+      : '<circle cx="24" cy="24" r="8"/><path d="M24 8v3M24 37v3M8 24h3M37 24h3M12.7 12.7l2.1 2.1M33.2 33.2l2.1 2.1M12.7 35.3l2.1-2.1M33.2 14.8l2.1-2.1"/>';
+  else if (c === 2) g = sun + cloud();
+  else if (c === 3) g = cloud(2);
+  else if (c === 45 || c === 48) g = '<path d="M9 18h30M6 25h36M9 32h30"/>';
+  else if (c >= 95) g = cloud(2) + '<path d="m25 38-3 5h5l-3 5"/>';
+  else if ((c >= 71 && c <= 77) || c === 85 || c === 86) g = cloud(2) + '<path d="M18 42v.1M25 44v.1M32 42v.1"/>';
+  else g = cloud(2) + '<path d="m18 41-1.5 3.5M25 41l-1.5 3.5M32 41l-1.5 3.5"/>';
+  return '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">'+g+'</svg>';
+}
+
+// ===== 农历（与 widget.js 一致） =====
+var LUNAR_DAYS=[0x04bd8,0x04ae0,0x0a570,0x054d5,0x0d260,0x0d950,0x16554,0x056a0,0x09ad0,0x055d2,0x04ae0,0x0a5b6,0x0a4d0,0x0d250,0x1d255,0x0b540,0x0d6a0,0x0ada2,0x095b0,0x14977,0x04970,0x0a4b0,0x0b4b5,0x06a50,0x06d40,0x1ab54,0x02b60,0x09570,0x052f2,0x04970,0x06566,0x0d4a0,0x0ea50,0x06e95,0x05ad0,0x02b60,0x186e3,0x092e0,0x1c8d7,0x0c950,0x0d4a0,0x1d8a6,0x0b550,0x056a0,0x1a5b4,0x025d0,0x092d0,0x0d2b2,0x0a950,0x0b557,0x06ca0,0x0b550,0x15355,0x04da0,0x0a5b0,0x14573,0x052b0,0x0a9a8,0x0e950,0x06aa0,0x0aea6,0x0ab50,0x04b60,0x0aae4,0x0a570,0x05260,0x0f263,0x0d950,0x05b57,0x056a0,0x096d0,0x04dd5,0x04ad0,0x0a4d0,0x0d4d4,0x0d250,0x0d558,0x0b540,0x0b6a0,0x195a6,0x095b0,0x049b0,0x0a974,0x0a4b0,0x0b27a,0x06a50,0x06d40,0x0af46,0x0ab60,0x09570,0x04af5,0x04970,0x064b0,0x074a3,0x0ea50,0x06b58,0x055c0,0x0ab60,0x096d5,0x092e0,0x0c960,0x0d954,0x0d4a0,0x0da50,0x07552,0x056a0,0x0abb7,0x025d0,0x092d0,0x0cab5,0x0a950,0x0b4a0,0x0baa4,0x0ad50,0x055d9,0x04ba0,0x0a5b0,0x15176,0x052b0,0x0a930,0x07954,0x06aa0,0x0ad50,0x05b52,0x04b60,0x0a6e6,0x0a4e0,0x0d260,0x0ea65,0x0d530,0x05aa0,0x076a3,0x096d0,0x04afb,0x04ad0,0x0a4d0,0x1d0b6,0x0d250,0x0d520,0x0dd45,0x0b5a0,0x056d0,0x055b2,0x049b0,0x0a577,0x0a4b0,0x0aa50,0x1b255,0x06d20,0x0ada0];
+var LM=["正","二","三","四","五","六","七","八","九","十","冬","腊"];
+var LD=["初一","初二","初三","初四","初五","初六","初七","初八","初九","初十","十一","十二","十三","十四","十五","十六","十七","十八","十九","二十","廿一","廿二","廿三","廿四","廿五","廿六","廿七","廿八","廿九","三十"];
+var GAN=["甲","乙","丙","丁","戊","己","庚","辛","壬","癸"], ZHI=["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"];
+function lunarText(now){
+  function lYearDays(y){var s=348;for(var i=0x8000;i>0x8;i>>=1)s+=(LUNAR_DAYS[y-1900]&i)?1:0;return s+leapDays(y);}
+  function leapMonth(y){return LUNAR_DAYS[y-1900]&0xf;}
+  function leapDays(y){if(leapMonth(y))return(LUNAR_DAYS[y-1900]&0x10000)?30:29;return 0;}
+  function lMonthDays(y,m){return(LUNAR_DAYS[y-1900]&(0x10000>>m))?30:29;}
+  var y=now.getFullYear(),m=now.getMonth()+1,d=now.getDate();
+  var offset=Math.floor((Date.UTC(y,m-1,d)-Date.UTC(1900,0,31))/86400000);
+  var yc=1900,mc=0,sub=0,leap=leapMonth(yc),isLeap=false;
+  for(yc=1900;yc<2101&&offset>0;yc++){sub=lYearDays(yc);offset-=sub;}
+  if(offset<0){offset+=sub;yc--;}
+  leap=leapMonth(yc);
+  for(mc=1;mc<13&&offset>0;mc++){
+    if(leap>0&&mc===(leap+1)&&!isLeap){--mc;isLeap=true;sub=leapDays(yc);}
+    else{sub=lMonthDays(yc,mc);if(isLeap)isLeap=false;}
+    offset-=sub;
+  }
+  if(offset===0&&leap>0&&mc===(leap+1)){if(isLeap){isLeap=false;}else{isLeap=true;--mc;}}
+  if(offset<0){offset+=sub;--mc;}
+  var gzY=GAN[(yc-4)%10]+ZHI[(yc-4)%12];
+  var dayNum=Math.floor(Date.UTC(y,m-1,d)/86400000);
+  var gzD=GAN[((dayNum+17)%10+10)%10]+ZHI[((dayNum+17)%12+12)%12];
+  return (isLeap?"闰":"")+LM[mc-1]+LD[offset]+" · "+gzY+"年 "+gzD;
+}
+var WEEKDAYS=["周日","周一","周二","周三","周四","周五","周六"];
+
+// ===== 预览渲染 =====
+var fontStyleEl = null;
+function ensureFontFace(){
+  if (fontStyleEl) { fontStyleEl.parentNode.removeChild(fontStyleEl); fontStyleEl = null; }
+  if (form.fontName && form.fontExt) {
+    fontStyleEl = document.createElement("style");
+    var fmt = {".ttf":"truetype",".otf":"opentype",".woff":"woff",".woff2":"woff2"}[form.fontExt] || "truetype";
+    fontStyleEl.textContent = "@font-face{font-family:'QwUserFont';src:url('"+api.font+"?v="+
+      (form.fontV||1)+"') format('"+fmt+"');font-display:swap;}";
+    document.head.appendChild(fontStyleEl);
+  }
+}
+
+function renderPreview(){
+  var f = form;
+  // 显隐
+  els.pvHeader.style.display = f.showWeather ? "flex" : "none";
+  els.pvClock.style.display = f.showClock ? "block" : "none";
+  els.pvWx.style.display = f.showWeather ? "grid" : "none";
+  els.pvForecast.style.display = f.showWeather ? "flex" : "none";
+  // 隐藏态遮罩
+  var mask = document.getElementById("pv-hidden-mask");
+  if (!f.visible) {
+    if (!mask) {
+      mask = document.createElement("div");
+      mask.id = "pv-hidden-mask";
+      mask.className = "pv-hidden-mask";
+      mask.innerHTML = "桌面卡片已隐藏<br>打开「桌面卡片 → 在桌面上显示卡片」即可恢复";
+      els.desktopBg.appendChild(mask);
+    }
+    els.pvCard.style.display = "none";
+    mask.style.display = "block";
+  } else {
+    els.pvCard.style.display = "block";
+    if (mask) mask.style.display = "none";
+  }
+  // 配色 / 透明
+  var a = clamp(f.opacity,0,100)/100;
+  els.pvCard.style.color = f.textColor;
+  els.pvCard.style.background = "rgba(255,255,255,"+a+")";
+  els.pvCard.style.backdropFilter = "blur("+(a*20).toFixed(1)+"px)";
+  els.pvCard.style.webkitBackdropFilter = "blur("+(a*20).toFixed(1)+"px)";
+  els.pvCard.style.boxShadow = "0 8px 32px rgba(0,0,0,"+(a*0.2).toFixed(3)+")";
+  els.pvCard.style.borderTop = "";
+  document.querySelectorAll(".pv-pin").forEach(function(el){ el.style.color = f.pinColor; });
+  // 字号（缩放系数作用于预览卡内各固定字号）
+  var s = clamp(f.fontScale,50,200)/100;
+  var fsMap = [
+    [els.pvCard.querySelector(".pv-city"),16],[els.pvTime,52],[els.pvSec,16],
+    [els.pvDate,14],[els.pvLunar,12],[els.pvTemp,30],
+    [els.pvCard.querySelector(".pv-unit"),15],[els.pvDesc,14],[els.pvSub,12]
+  ];
+  fsMap.forEach(function(p){ p[0].style.fontSize = (p[1]*s).toFixed(1)+"px"; });
+  els.pvCard.querySelectorAll(".pv-fday").forEach(function(e){ e.style.fontSize=(10*s).toFixed(1)+"px"; });
+  els.pvCard.querySelectorAll(".pv-ftemp").forEach(function(e){ e.style.fontSize=(11*s).toFixed(1)+"px"; });
+  // 字体
+  els.pvCard.style.fontFamily = f.fontName
+    ? "'QwUserFont',-apple-system,'PingFang SC','Microsoft YaHei',sans-serif"
+    : "-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif";
+  // 城市
+  els.pvCity.textContent = f.location ? f.location.name : "--";
+}
+
+function renderPreviewWeather(data){
+  var c = data.current, daily = data.daily;
+  els.pvIcon.innerHTML = wxSvg(c.weather_code, c.is_day);
+  els.pvIcon.style.color = form.iconColor;
+  els.pvTemp.textContent = Math.round(c.temperature_2m);
+  els.pvDesc.textContent = WX[c.weather_code] || "未知";
+  els.pvSub.textContent = "体感 "+Math.round(c.apparent_temperature)+"° · 湿度 "+
+    c.relative_humidity_2m+"% · 风速 "+Math.round(c.wind_speed_10m)+" km/h · 气压 "+
+    Math.round(c.pressure_msl)+" hPa";
+  els.pvForecast.innerHTML = "";
+  for (var i=0;i<Math.min(5,daily.time.length);i++){
+    (function(i){
+      var dt = new Date(daily.time[i]);
+      var name = i===0 ? "今天" : WEEKDAYS[dt.getDay()];
+      var item = document.createElement("div");
+      item.className = "pv-fitem";
+      item.innerHTML =
+        '<div class="pv-fday">'+name+'</div>'+
+        '<div class="pv-fico" style="color:'+form.iconColor+'">'+wxSvg(daily.weather_code[i],1)+'</div>'+
+        '<div class="pv-ftemp">'+Math.round(daily.temperature_2m_max[i])+'°</div>'+
+        '<div class="pv-ftemp"><span class="pv-fmin">'+Math.round(daily.temperature_2m_min[i])+'°</span></div>';
+      els.pvForecast.appendChild(item);
+    })(i);
+  }
+  renderPreview();
+}
+
+function fetchPreviewWeather(){
+  if (!form.location) return Promise.resolve();
+  var p = new URLSearchParams({
+    latitude: form.location.latitude, longitude: form.location.longitude,
+    current: "temperature_2m,apparent_temperature,relative_humidity_2m,is_day,weather_code,wind_speed_10m,pressure_msl",
+    daily: "weather_code,temperature_2m_max,temperature_2m_min",
+    timezone: "auto", forecast_days: "5"
+  });
+  return fetch(DIRECT_WEATHER + "?" + p.toString())
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data.error) { els.pvDesc.textContent = data.error; return; }
+      previewWeatherTs = Date.now();
+      renderPreviewWeather(data);
+      updateTimeLabel();
+    }).catch(function(){ /* 预览保留旧数据 */ });
+}
+
+function updateTimeLabel(){
+  if (!previewWeatherTs) return;
+  var d = new Date(previewWeatherTs);
+  els.updateTime.textContent = "天气更新于 " +
+    String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+}
+
+// 预览时钟
+function tickClock(){
+  var now = new Date();
+  els.pvTime.textContent = String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
+  els.pvSec.textContent = ":"+String(now.getSeconds()).padStart(2,"0");
+  els.pvDate.textContent = now.getFullYear()+"年"+(now.getMonth()+1)+"月"+now.getDate()+"日 "+WEEKDAYS[now.getDay()];
+  els.pvLunar.textContent = "农历 " + lunarText(now);
+}
+
+// ===== 字体上传 / 删除 =====
+els.fontFile.addEventListener("change", function(){
+  var file = els.fontFile.files && els.fontFile.files[0];
+  if (!file) return;
+  var ext = (file.name.match(/\.[^.]+$/)||[""])[0].toLowerCase();
+  if ([".ttf",".otf",".woff",".woff2"].indexOf(ext) < 0) {
+    toast("仅支持 ttf / otf / woff / woff2 字体文件"); els.fontFile.value = ""; return;
+  }
+  if (file.size > 25*1024*1024) { toast("字体文件不能超过 25MB"); els.fontFile.value = ""; return; }
+  var fd = new FormData();
+  fd.append("font", file);
+  els.fontMeta.innerHTML = '<span style="color:#9aa0b4">上传中... '+file.name+'</span>';
+  fetch(api.font, { method: "POST", credentials: "same-origin", body: fd })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, d: d }; }); })
+    .then(function(res){
+      if (!res.ok || !res.d.ok) throw new Error(res.d.error || "上传失败");
+      form.fontName = res.d.fontName;
+      form.fontExt = res.d.fontExt;
+      form.fontV = res.d.fontV;
+      ensureFontFace();
+      // 等字体文件可用后保存并预览
+      return postSettings(false).then(function(){
+        if (document.fonts && document.fonts.load) {
+          document.fonts.load("16px 'QwUserFont'").then(function(){ renderPreview(); }).catch(function(){});
+        }
+        renderPreview();
+        renderFontMeta();
+        toast("字体已上传并生效");
+      });
+    })
+    .catch(function(e){
+      els.fontMeta.innerHTML = "";
+      toast("字体上传失败：" + (e.message || e));
+    });
+  els.fontFile.value = "";
+});
+
+function renderFontMeta(){
+  if (form.fontName) {
+    els.fontMeta.innerHTML =
+      '<span style="color:#9aa0b4">当前：</span><span class="fname"></span>' +
+      '<button type="button" class="link-btn" id="font-reset">恢复默认字体</button>';
+    els.fontMeta.querySelector(".fname").textContent = form.fontName;
+    document.getElementById("font-reset").addEventListener("click", resetFont);
+  } else {
+    els.fontMeta.innerHTML = '<span style="color:#9aa0b4">未设置，使用系统默认字体</span>';
+  }
+}
+
+function resetFont(){
+  fetch(api.font, { method: "DELETE", credentials: "same-origin" }).then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d.ok) throw new Error(d.error || "删除失败");
+      form.fontName = null; form.fontExt = null; form.fontV = null;
+      ensureFontFace();
+      return postSettings(false);
+    }).then(function(){
+      renderPreview(); renderFontMeta();
+      toast("已恢复系统默认字体");
+    }).catch(function(e){ toast("操作失败：" + (e.message || e)); });
+}
+
+// ===== 表单绑定 =====
+function bindForm(){
+  els.mClock.checked = !!form.showClock;
+  els.mWeather.checked = !!form.showWeather;
+  els.mClock.addEventListener("change", function(){ form.showClock = els.mClock.checked; renderPreview(); markDirty(); });
+  els.mWeather.addEventListener("change", function(){ form.showWeather = els.mWeather.checked; renderPreview(); markDirty(); });
+
+  els.locInput.value = form.location ? form.location.name : "";
+  els.searchBtn.addEventListener("click", doSearch);
+  els.locInput.addEventListener("keydown", function(e){ if (e.key === "Enter") doSearch(); });
+  document.addEventListener("click", function(e){
+    if (!e.target.closest("#search-results") && !e.target.closest(".search-box"))
+      els.searchResults.style.display = "none";
+  });
+
+  els.opSlider.value = form.opacity;
+  els.opVal.textContent = form.opacity + "%";
+  els.opSlider.addEventListener("input", function(){
+    form.opacity = parseInt(els.opSlider.value,10);
+    els.opVal.textContent = form.opacity + "%";
+    renderPreview(); markDirty();
+  });
+
+  els.cText.value = form.textColor; els.cIcon.value = form.iconColor; els.cPin.value = form.pinColor;
+  els.cText.addEventListener("input", function(){ form.textColor = els.cText.value; renderPreview(); markDirty(); });
+  els.cIcon.addEventListener("input", function(){ form.iconColor = els.cIcon.value; renderPreview(); markDirty(); });
+  els.cPin.addEventListener("input", function(){ form.pinColor = els.cPin.value; renderPreview(); markDirty(); });
+
+  // 字号：− / 直接输入 / +
+  els.fsInput.value = form.fontScale;
+  function setScale(v, fromInput){
+    v = parseInt(v,10);
+    if (isNaN(v)) { if(!fromInput) els.fsInput.value = form.fontScale; return; }
+    v = clamp(v, 50, 200);
+    form.fontScale = v;
+    els.fsInput.value = v;
+    renderPreview(); markDirty();
+  }
+  els.fsMinus.addEventListener("click", function(){ setScale(form.fontScale - 5); });
+  els.fsPlus.addEventListener("click", function(){ setScale(form.fontScale + 5); });
+  els.fsInput.addEventListener("input", function(){
+    var v = parseInt(els.fsInput.value,10);
+    if (!isNaN(v)) { form.fontScale = clamp(v,50,200); renderPreview(); markDirty(); }
+  });
+  els.fsInput.addEventListener("change", function(){ els.fsInput.value = form.fontScale; });
+
+  els.rfSelect.value = String(form.refreshInterval);
+  els.rfSelect.addEventListener("change", function(){
+    form.refreshInterval = parseInt(els.rfSelect.value,10); markDirty();
+  });
+
+  els.visSwitch.checked = form.visible !== false;
+  els.visSwitch.addEventListener("change", function(){
+    form.visible = els.visSwitch.checked;
+    renderPreview(); markDirty();
+    postSettings(false);   // 显隐立即生效
+  });
+
+  els.resetPos.addEventListener("click", function(){
+    form.position = null;   // widget 轮询到 position=null 后自动回到桌面默认避让位置
+    markDirty();
+    postSettings(false).then(function(){ toast("已重置，桌面卡片将自动回到默认位置"); });
+  });
+
+  els.saveBtn.addEventListener("click", function(){
+    if (!form.showClock && !form.showWeather) {
+      toast("请至少保留一个显示模块"); return;
+    }
+    els.saveBtn.disabled = true;
+    postSettings(true);
+  });
+
+  window.addEventListener("keydown", function(e){
+    if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); els.saveBtn.click(); }
+  });
+
+  document.getElementById("check-update-btn").addEventListener("click", function(){
+    checkUpdate(true);
+  });
+
+  renderFontMeta();
+}
+
+// ===== 启动 =====
+function init(){
+  tickClock(); setInterval(tickClock, 1000);
+  probeApiBase().then(function(){
+    loadSettings().then(function(s){
+      saved = clone(s);
+      form = s;
+      bindForm();
+      ensureFontFace();
+      renderPreview();
+      markDirty();
+      if (form.showWeather !== false) fetchPreviewWeather();
+      loadCnCities();
+      if (document.fonts && document.fonts.load && form.fontName) {
+        document.fonts.load("16px 'QwUserFont'").catch(function(){});
+      }
+      // 打开设置中心时自动检查更新（仅检查，不自动下载安装）
+      checkUpdate(false);
+    });
+  });
+}
+init();
+})();
+</script>
+</body>
+</html>

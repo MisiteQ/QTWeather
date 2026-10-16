@@ -1,7 +1,7 @@
 {
     ".url": {
         "com.qweather.widget.main": {
-            "title": "天气预报",
+            "title": "时钟天气QTWeather",
             "icon": "images/icon-{0}.png",
             "type": "iframe",
             "protocol": "http",

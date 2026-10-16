@@ -1,5 +1,5 @@
 """
-飞牛桌面天气预报 - Flask 后端服务（FPK 版本）v2.1.0
+时钟天气 QTWeather（com.qweather.widget）- Flask 后端服务（FPK 版本）v3.0.0
 使用 Open-Meteo 免费天气 API（无需 API Key）
 
 注入机制（v2.1.0，零 /usr/trim/www 写入）：
@@ -41,8 +41,12 @@ if os.path.isdir(_LIBS_DIR) and _LIBS_DIR not in sys.path:
 
 import requests
 from flask import Flask, jsonify, request, send_from_directory, Response
+from werkzeug.exceptions import RequestEntityTooLarge
 
 app = Flask(__name__, static_folder="static", static_url_path="")
+
+# 上传体上限：自定义字体文件最大 25MB（nginx 侧也要同步放开，见 QW_NGINX_CONF_CONTENT）
+app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
 
 GATEWAY_PREFIX = "/app/com.qweather.widget"
 
@@ -91,9 +95,28 @@ APP_DEST_DIR = os.environ.get(
     "TRIM_APPDEST", "/vol1/@appcenter/com.qweather.widget")
 WIDGET_JS_DIRECT = os.path.join(APP_DEST_DIR, "static", "widget.js")
 CITIES_JSON_DIRECT = os.path.join(APP_DEST_DIR, "static", "cities_cn.json")
+SETTINGS_HTML_DIRECT = os.path.join(APP_DEST_DIR, "static", "settings.html")
+ICON_DIRECT = os.path.join(APP_DEST_DIR, "static", "icon.png")
 
 # 小组件设置持久化文件（存 NAS，跨浏览器/跨设备共享）
 SETTINGS_FILE = os.path.join(APP_DATA_DIR, "settings.json")
+
+# 用户自定义字体目录（标准字体文件：ttf/otf/woff/woff2，单字体槽 qwuser.<ext>）
+FONTS_DIR = os.path.join(APP_DATA_DIR, "fonts")
+FONT_SLOT_PREFIX = "qwuser"
+FONT_TYPES = {
+    ".ttf": "font/ttf",
+    ".otf": "font/otf",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+}
+# 各类字体文件头魔数（防止仅改扩展名的伪字体）
+FONT_MAGIC = {
+    ".ttf": (b"\x00\x01\x00\x00", b"true", b"typ1"),
+    ".otf": (b"OTTO",),
+    ".woff": (b"wOFF",),
+    ".woff2": (b"wOF2",),
+}
 
 # 本机应用端口（gunicorn 绑定，nginx 反代 settings 写接口用）
 SERVICE_PORT = os.environ.get("TRIM_SERVICE_PORT", "5698")
@@ -129,6 +152,27 @@ location = /qweather-cities.json {
     alias %s;
     default_type application/json;
 }
+# 应用独立窗口（点已安装图标）与浏览器同源直达的设置中心页
+location = /qweather-settings-page {
+    alias %s;
+    default_type text/html;
+    add_header cache-control no-store;
+}
+# 设置中心页左上角 Logo / favicon（64px PNG）
+location = /qweather-icon.png {
+    alias %s;
+    default_type image/png;
+    add_header cache-control public;
+}
+# 用户自定义字体：上传（POST multipart，≤25m）/ 读取（GET，供 @font-face）/ 删除（DELETE）。
+# ^~ 前缀与上面的精确匹配 location 互不影响。
+location ^~ /qweather-api/font {
+    client_max_body_size 25m;
+    proxy_pass http://127.0.0.1:%s/api/font;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    add_header cache-control no-store;
+}
 # 小组件设置（城市定位等）持久化：唯一数据源是 NAS 本机
 # <数据目录>/settings.json，由 nginx 同源提供，绕开 fnOS 应用网关
 # （网关对 /app/<name>/api/* 一律回 invalid token，桌面页无法调用）。
@@ -145,6 +189,7 @@ location = /qweather-api/settings {
     add_header cache-control no-store;
 }
 """ % (DESKTOP_INDEX, WIDGET_JS_DIRECT, CITIES_JSON_DIRECT,
+       SETTINGS_HTML_DIRECT, ICON_DIRECT, SERVICE_PORT,
        SETTINGS_FILE, SERVICE_PORT)
 
 WIDGET_SCRIPT_TAG = '<script src="/qweather-widget.js"></script>'
@@ -162,42 +207,26 @@ def add_cors_headers(response):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Vary"] = "Origin"
     response.headers["Access-Control-Allow-Credentials"] = "true"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
     return response
 
 
+def _settings_page_response():
+    """设置中心页（点已安装图标弹出的独立窗口内容）。"""
+    try:
+        resp = send_from_directory(app.static_folder, "settings.html")
+        resp.mimetype = "text/html"
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    except Exception:
+        return Response("settings.html missing", status=500, mimetype="text/plain")
+
+
 @app.route("/")
 def index_page():
-    # 应用中心入口：本应用无窗口，桌面小组件直接注入飞牛桌面
-    return Response(
-        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">"
-        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-        "<title>天气预报小部件</title>"
-        "<style>body{margin:0;min-height:100vh;display:flex;"
-        "align-items:center;justify-content:center;"
-        "font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;"
-        "background:linear-gradient(135deg,#5b6ee1,#7b8ff1);color:#fff}"
-        ".box{text-align:center;padding:40px}"
-        "h1{font-size:22px;margin:0 0 10px}"
-        "p{font-size:14px;opacity:.9;margin:6px 0}"
-        ".developer{margin-top:24px;font-size:13px;opacity:.85}.developer a{color:inherit}"
-        "#st{margin-top:18px;font-size:13px;opacity:.95;white-space:pre-line}"
-        "</style></head><body><div class=\"box\"><h1>天气预报桌面小部件</h1>"
-        "<p>本应用没有独立窗口，天气卡片已直接显示在飞牛桌面上。</p>"
-        "<p>拖动卡片可调整位置，点击卡片右上角齿轮可更改城市与样式。</p>"
-        "<div id=\"st\">正在检查注入状态…</div>"
-        "<div class=\"developer\">开发者：Misite齊　<a href=\"https://github.com/MisiteQ\" target=\"_blank\" rel=\"noopener\">GitHub</a></div>"
-        "</div><script>"
-        "fetch('api/inject_status').then(r=>r.json()).then(d=>{"
-        "document.getElementById('st').textContent="
-        "'桌面注入：'+(d.desktop_index_ok?'正常':'异常')+"
-        "\\nnginx 配置：'+(d.ngconf_has_entry?'已同步':'未同步')+"
-        "\\n维护服务：'+(d.maintenance_running?'运行中':'已停止');"
-        "}).catch(()=>{"
-        "document.getElementById('st').textContent='状态查询失败';"
-        "});</script></body></html>",
-        mimetype="text/html")
+    # 应用中心入口：独立窗口即设置中心；桌面卡片由注入脚本直接渲染
+    return _settings_page_response()
 
 
 @app.route("/config")
@@ -207,20 +236,7 @@ def index_page():
 @app.route("/app/com.qweather.widget/config.html")
 @app.route("/app/com.qweather.widget/index.html")
 def config_page():
-    return Response(
-        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">"
-        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-        "<title>天气预报设置</title>"
-        "<style>body{margin:0;padding:32px;display:flex;align-items:center;justify-content:center;"
-        "font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:#f5f7ff;color:#1a1a2e}"
-        ".panel{max-width:640px;width:100%;background:#fff;border-radius:16px;padding:28px 24px;box-shadow:0 12px 36px rgba(91,110,225,0.12)}"
-        "h1{margin:0 0 12px;font-size:28px}p{margin:8px 0;color:#515a6d}.developer{margin-top:22px;padding-top:16px;border-top:1px solid #e6eaf5;color:#515a6d}.developer a{color:#4d63d8}code{background:#eef3ff;padding:4px 8px;border-radius:8px}"
-        "</style></head><body><div class=\"panel\"><h1>天气预报设置</h1>"
-        "<p>当前页面可作为应用设置入口。</p><p>若你的桌面启动器返回 NotFound，请确认已装载应用的 API 路由。</p>"
-        "<p>相关接口：<code>/api/inject_status</code>、<code>/api/weather</code>、<code>/api/geocode</code></p>"
-        "<div class=\"developer\">开发者：Misite齊　<a href=\"https://github.com/MisiteQ\" target=\"_blank\" rel=\"noopener\">https://github.com/MisiteQ</a></div>"
-        "</div></body></html>",
-        mimetype="text/html")
+    return _settings_page_response()
 
 
 @app.errorhandler(404)
@@ -804,6 +820,101 @@ def save_settings():
         except Exception:
             pass
         return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ===== 用户自定义字体（单字体槽：<数据目录>/fonts/qwuser.<ext>） =====
+def _find_font_slot():
+    """返回当前槽位字体的 (绝对路径, 扩展名)；无则 (None, None)。"""
+    try:
+        for fn in os.listdir(FONTS_DIR):
+            ext = os.path.splitext(fn)[1].lower()
+            if os.path.splitext(fn)[0] == FONT_SLOT_PREFIX and ext in FONT_TYPES:
+                return os.path.join(FONTS_DIR, fn), ext
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    return None, None
+
+
+def _remove_font_slot():
+    try:
+        for fn in os.listdir(FONTS_DIR):
+            if os.path.splitext(fn)[0] == FONT_SLOT_PREFIX and \
+                    os.path.splitext(fn)[1].lower() in FONT_TYPES:
+                os.remove(os.path.join(FONTS_DIR, fn))
+    except FileNotFoundError:
+        pass
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_too_large(_e):
+    return jsonify({"ok": False, "error": "字体文件不能超过 25MB"}), 413
+
+
+@app.route("/api/font", methods=["GET", "POST", "DELETE", "OPTIONS"])
+def font_api():
+    if request.method == "OPTIONS":
+        return jsonify({"ok": True})
+
+    try:
+        os.makedirs(FONTS_DIR, exist_ok=True)
+        try:
+            os.chmod(FONTS_DIR, 0o755)
+        except Exception:
+            pass
+
+        if request.method == "GET":
+            path, ext = _find_font_slot()
+            if not path:
+                return jsonify({"ok": False, "error": "no font"}), 404
+            resp = send_from_directory(FONTS_DIR, os.path.basename(path))
+            resp.mimetype = FONT_TYPES[ext]
+            resp.headers["Cache-Control"] = "no-store"
+            return resp
+
+        if request.method == "DELETE":
+            _remove_font_slot()
+            return jsonify({"ok": True})
+
+        # POST：multipart 上传，字段名 font
+        up = request.files.get("font")
+        if up is None or not up.filename:
+            return jsonify({"ok": False, "error": "未收到字体文件"}), 400
+        original = os.path.basename(up.filename)
+        ext = os.path.splitext(original)[1].lower()
+        if ext not in FONT_TYPES:
+            return jsonify({"ok": False,
+                            "error": "仅支持 ttf / otf / woff / woff2 字体文件"}), 400
+
+        head = up.stream.read(4)
+        up.stream.seek(0)
+        if not any(head.startswith(m) for m in FONT_MAGIC[ext]):
+            return jsonify({"ok": False,
+                            "error": "文件内容不是有效的字体文件"}), 400
+
+        _remove_font_slot()
+        dest = os.path.join(FONTS_DIR, FONT_SLOT_PREFIX + ext)
+        up.save(dest)
+        if os.path.getsize(dest) == 0:
+            _remove_font_slot()
+            return jsonify({"ok": False, "error": "字体文件为空"}), 400
+        try:
+            os.chmod(dest, 0o644)
+        except Exception:
+            pass
+
+        return jsonify({
+            "ok": True,
+            "fontName": original,
+            "fontExt": ext,
+            "fontV": int(time.time()),
+            "size": os.path.getsize(dest)
+        })
+    except RequestEntityTooLarge:
+        raise
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 

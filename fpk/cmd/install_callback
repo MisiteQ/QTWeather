@@ -7,10 +7,10 @@ TEMP_LOG_FILE="${TRIM_TEMP_LOGFILE:-/tmp/com.qweather.widget.log}"
 if [ -x "${APP_DIR}/cmd/main" ]; then
 	"${APP_DIR}/cmd/main" start
 	if [ $? -eq 0 ]; then
-		echo "安装完成，天气预报服务已启动。" > "${TEMP_LOG_FILE}"
+		echo "安装完成，时钟天气 QTWeather 服务已启动。" > "${TEMP_LOG_FILE}"
 		exit 0
 	fi
 fi
 
-echo "安装完成，但天气预报服务启动失败，请查看 ${PKGVAR_DIR}/app.log。" > "${TEMP_LOG_FILE}"
+echo "安装完成，但时钟天气 QTWeather 服务启动失败，请查看 ${PKGVAR_DIR}/app.log。" > "${TEMP_LOG_FILE}"
 exit 0

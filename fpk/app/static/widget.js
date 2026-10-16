@@ -1,7 +1,14 @@
 /**
- * QWeather 桌面小组件 v2.1.0
+ * 时钟天气 QTWeather 桌面小组件 v3.0.0
  * 直接注入飞牛桌面页面运行，无窗口标题栏
- * 支持：拖动、调整大小、透明度调节、地点切换、自动刷新、隐藏/恢复
+ * 支持：拖动、调整大小、模块独立开关、透明度、文字/图标/定位配色、
+ *       字号调节、自定义字体、地点切换、自动刷新、隐藏/恢复
+ *
+ * v3.0.0: 设置中心移至点击「已安装」图标弹出的独立窗口，桌面卡片移除全部
+ *         设置入口（仅展示时钟与天气）；时间日期 / 天气预报模块可独立开关
+ *         （至少保留一个）；外观新增字号 50%–200% 与自定义字体上传
+ *         （ttf/otf/woff/woff2，文件头魔数校验）；设置中心含「关于」页与
+ *         GitHub 版本更新检查；卡片每 4 秒轮询 NAS settings.json 热生效。
  *
  * v2.1.0 重大修复 —— 彻底解决遮挡飞牛桌面图标与原生控件的问题：
  *   - 小组件不再挂在 <body> 下用高 z-index 浮于一切之上；
@@ -100,7 +107,7 @@
 
     // ===== API（直连 Open-Meteo，CORS 开放，无需 Key / 无需经 NAS 网关） =====
     var DIRECT_WEATHER = "https://api.open-meteo.com/v1/forecast";
-    var DIRECT_GEOCODE = "https://geocoding-api.open-meteo.com/v1/search";
+    // 地点搜索只存在于独立设置窗口（settings.html），卡片本体不再内建搜索。
     // 设置持久化：唯一数据源是 NAS 本机 settings.json，由 nginx 同源
     // 直接提供（/qweather-settings 读、/qweather-api/settings 写），
     // 纯相对路径——IP 访问与域名访问都可用，也不需要 CORS/凭据。
@@ -110,13 +117,9 @@
     // 清缓存后，城市定位等设置一律从 NAS 读取。
     var SETTINGS_GET = "/qweather-settings";
     var SETTINGS_POST = "/qweather-api/settings";
-    // 城市搜索数据源：
-    //   1) 内置中国行政区划坐标库（/qweather-cities.json，省/市/县三级 3200+，
-    //      来源阿里 DataV GeoAtlas，脚本 _gen_cities.py 可再生成）——
-    //      Open-Meteo 地理编码基于 GeoNames，中国中小城市中文覆盖差
-    //      （搜不到/错配国外同名地点），国内城市一律本地检索，秒出且准确；
-    //   2) 国际城市走 Open-Meteo（language=zh），与本地结果合并去重。
-    var CN_CITIES_CACHE_KEY = "qweather_widget_cities_v1";
+    // 用户自定义字体（上传/删除由独立设置窗口完成，这里只负责读取渲染）
+    var FONT_API = "/qweather-api/font";
+    // 城市库仅独立设置窗口的搜索功能使用（/qweather-cities.json）。
 
     // ===== 配置常量 =====
     // 仅天气数据做浏览器侧缓存（按经纬度键控）；设置不进浏览器缓存。
@@ -127,8 +130,14 @@
         location: { name: "北京", latitude: 39.9042, longitude: 116.4074, country: "中国" },
         opacity: 85,          // 仅作用于卡片底色（0 = 背景全透明，文字/图标始终不透明）
         textColor: "#1a1a2e", // 文字颜色
-        iconColor: "#1a1a2e", // 图标颜色（天气/预报/齿轮）
+        iconColor: "#1a1a2e", // 图标颜色（天气/预报）
         pinColor: "#e74c3c",  // 定位图标颜色（城市名左侧定位针，独立配色）
+        fontScale: 100,       // 全局字号百分比（50–200，100 = 设计默认字号）
+        fontName: null,       // 自定义字体原始文件名（null = 系统默认字体）
+        fontExt: null,        // 自定义字体扩展名（.ttf/.otf/.woff/.woff2）
+        fontV: null,          // 自定义字体版本戳（破缓存）
+        showClock: true,      // 时间日期模块（时钟 + 公历 + 农历）
+        showWeather: true,    // 天气预报模块（城市 + 实时天气 + 5 天预报）
         refreshInterval: 30,
         position: null,   // 相对桌面宿主容器的坐标 {x, y}
         visible: true,
@@ -254,7 +263,6 @@
     var hostEl = null;
     var root = null;
     var card = null;
-    var settingsPanel = null;
     var showBtn = null;
 
     // ===== 作用域样式表 =====
@@ -262,103 +270,62 @@
     //   壁纸 0 ＜ 桌面图标(auto 非定位) ＜ 小组件 10 ＜ 原生窗口 10010 ＜
     //   右键菜单 10022 ＜ 全屏界面 1000001
     var SCOPED_CSS = [
-        "#qweather-root{position:absolute;z-index:10;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;color:var(--qw-text,#1a1a2e);pointer-events:none;user-select:none;}",
+        "#qweather-root{position:absolute;z-index:10;font-family:'QwUserFont',-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;color:var(--qw-text,#1a1a2e);pointer-events:none;user-select:none;}",
         "#qweather-root *{margin:0;padding:0;box-sizing:border-box;}",
 
         // 卡片底色 / 模糊 / 投影全部走 CSS 变量，由 applyOpacity() 统一驱动：
         // 三者同步淡出，滑到 0% 时背景彻底透明且不留磨砂残影——而文字、
         // 图标、分隔线之外的内容始终完全不透明（它们不吃这些变量）。
-        "#qweather-root .qw-card{pointer-events:auto;width:340px;min-width:280px;min-height:320px;border-radius:20px;background:rgba(255,255,255,var(--qw-bg,0.85));backdrop-filter:blur(var(--qw-blur,20px));-webkit-backdrop-filter:blur(var(--qw-blur,20px));box-shadow:0 8px 32px rgba(0,0,0,var(--qw-shadow,0.2));padding:18px 22px 16px;display:flex;flex-direction:column;transition:box-shadow 0.3s ease,transform 0.1s ease;position:relative;overflow:hidden;}",
+        "#qweather-root .qw-card{pointer-events:auto;width:340px;min-width:240px;min-height:120px;border-radius:20px;background:rgba(255,255,255,var(--qw-bg,0.85));backdrop-filter:blur(var(--qw-blur,20px));-webkit-backdrop-filter:blur(var(--qw-blur,20px));box-shadow:0 8px 32px rgba(0,0,0,var(--qw-shadow,0.2));padding:18px 22px 16px;display:flex;flex-direction:column;transition:box-shadow 0.3s ease,transform 0.1s ease;position:relative;overflow:hidden;cursor:grab;}",
         "#qweather-root .qw-card:hover{box-shadow:0 12px 40px rgba(0,0,0,calc(var(--qw-shadow,0.2) * 1.5));}",
-        "#qweather-root .qw-card.qw-compact .qw-clock-lunar{display:none;}",
-        "#qweather-root .qw-card.qw-compact .qw-forecast{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}",
-        "#qweather-root .qw-card.qw-tiny .qw-clock-lunar,#qweather-root .qw-card.qw-tiny .qw-wx-sub,#qweather-root .qw-card.qw-tiny .qw-wx-text,#qweather-root .qw-card.qw-tiny .qw-forecast{display:none;}",
-        "#qweather-root .qw-card.qw-tiny .qw-clock-time{font-size:38px;}",
-        "#qweather-root .qw-card.qw-tiny .qw-wx-temp{font-size:34px;}",
+        "#qweather-root .qw-card:active{cursor:grabbing;}",
 
-        "#qweather-root .qw-header{display:flex;align-items:center;justify-content:space-between;cursor:grab;gap:8px;}",
-        "#qweather-root .qw-header:active{cursor:grabbing;}",
+        // ===== 模块开关：时间日期 / 天气预报可独立显隐（在独立设置窗口中配置） =====
+        "#qweather-root .qw-card.qw-no-clock .qw-clock{display:none;}",
+        "#qweather-root .qw-card.qw-no-weather .qw-header,#qweather-root .qw-card.qw-no-weather .qw-wx,#qweather-root .qw-card.qw-no-weather .qw-forecast{display:none;}",
+        "#qweather-root .qw-card.qw-no-weather .qw-clock{margin-top:0;}",
+        "#qweather-root .qw-card.qw-no-clock .qw-wx{margin-top:0;padding-top:0;border-top:none;}",
+        "#qweather-root .qw-card.qw-compact .qw-clock-lunar{display:none;}",
+        "#qweather-root .qw-card.qw-compact .qw-forecast-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(54px,1fr));gap:6px;}",
+        "#qweather-root .qw-card.qw-tiny .qw-clock-lunar,#qweather-root .qw-card.qw-tiny .qw-wx-sub,#qweather-root .qw-card.qw-tiny .qw-wx-text,#qweather-root .qw-card.qw-tiny .qw-forecast{display:none;}",
+        "#qweather-root .qw-card.qw-tiny .qw-clock-time{font-size:calc(38px * var(--qw-fs,1));}",
+        "#qweather-root .qw-card.qw-tiny .qw-wx-temp{font-size:calc(34px * var(--qw-fs,1));}",
+
+        "#qweather-root .qw-header{display:flex;align-items:center;justify-content:space-between;gap:8px;}",
         "#qweather-root .qw-location-info{display:flex;align-items:center;gap:6px;flex:1;min-width:0;}",
         "#qweather-root .qw-location-icon{width:18px;height:18px;flex-shrink:0;color:var(--qw-pin,#e74c3c);}",
-        "#qweather-root .qw-location-name{font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
-        "#qweather-root .qw-icon-btn{width:30px;height:30px;border-radius:50%;border:none;background:rgba(0,0,0,0.05);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--qw-icon,#1a1a2e);flex-shrink:0;transition:background 0.2s;margin-left:8px;pointer-events:auto;}",
-        "#qweather-root .qw-icon-btn svg{width:16px;height:16px;}",
-        "#qweather-root .qw-icon-btn:hover{background:rgba(0,0,0,0.1);}",
+        "#qweather-root .qw-location-name{font-size:calc(16px * var(--qw-fs,1));font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
 
         // ===== 时钟 + 农历（时钟卡片风格，移植自 fnmonitor） =====
         "#qweather-root .qw-clock{margin-top:14px;}",
-        "#qweather-root .qw-clock-time{display:flex;align-items:flex-end;gap:6px;font-size:52px;font-weight:200;line-height:1;letter-spacing:-2px;}",
-        "#qweather-root .qw-clock-time .qw-sec{font-size:16px;font-weight:500;opacity:0.6;letter-spacing:0;margin-bottom:7px;}",
-        "#qweather-root .qw-clock-date{margin-top:10px;font-size:14px;font-weight:600;}",
-        "#qweather-root .qw-clock-lunar{margin-top:2px;font-size:12px;opacity:0.72;}",
+        "#qweather-root .qw-clock-time{display:flex;align-items:flex-end;gap:6px;font-size:calc(52px * var(--qw-fs,1));font-weight:200;line-height:1;letter-spacing:-2px;}",
+        "#qweather-root .qw-clock-time .qw-sec{font-size:calc(16px * var(--qw-fs,1));font-weight:500;opacity:0.6;letter-spacing:0;margin-bottom:7px;}",
+        "#qweather-root .qw-clock-date{margin-top:10px;font-size:calc(14px * var(--qw-fs,1));font-weight:600;}",
+        "#qweather-root .qw-clock-lunar{margin-top:2px;font-size:calc(12px * var(--qw-fs,1));opacity:0.72;}",
 
         // ===== 天气区块（图标 + 温度 + 描述 + 体感/湿度/风速/气压） =====
         "#qweather-root .qw-wx{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;align-items:center;margin-top:16px;padding-top:14px;border-top:1px solid rgba(0,0,0,calc(var(--qw-shadow,0.2) * 0.4));}",
         "#qweather-root .qw-wx-ico{grid-row:span 2;width:46px;height:46px;color:var(--qw-icon,#1a1a2e);}",
         "#qweather-root .qw-wx-ico svg{width:46px;height:46px;stroke-width:1.4;}",
         "#qweather-root .qw-wx-main{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}",
-        "#qweather-root .qw-wx-temp{font-size:30px;font-weight:300;line-height:1;letter-spacing:-1px;}",
-        "#qweather-root .qw-temp-unit{font-size:15px;font-weight:300;opacity:0.8;}",
-        "#qweather-root .qw-wx-text{font-size:14px;opacity:0.85;}",
-        "#qweather-root .qw-wx-sub{font-size:12px;opacity:0.72;}",
+        "#qweather-root .qw-wx-temp{font-size:calc(30px * var(--qw-fs,1));font-weight:300;line-height:1;letter-spacing:-1px;}",
+        "#qweather-root .qw-temp-unit{font-size:calc(15px * var(--qw-fs,1));font-weight:300;opacity:0.8;}",
+        "#qweather-root .qw-wx-text{font-size:calc(14px * var(--qw-fs,1));opacity:0.85;}",
+        "#qweather-root .qw-wx-sub{font-size:calc(12px * var(--qw-fs,1));opacity:0.72;}",
 
         "#qweather-root .qw-forecast{margin-bottom:8px;flex:1;}",
-        "#qweather-root .qw-forecast-title{font-size:11px;opacity:0.62;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;}",
+        "#qweather-root .qw-forecast-title{font-size:calc(11px * var(--qw-fs,1));opacity:0.62;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;}",
         "#qweather-root .qw-forecast-list{display:flex;justify-content:space-between;gap:2px;}",
         "#qweather-root .qw-forecast-item{flex:1;text-align:center;padding:6px 2px;border-radius:8px;transition:background 0.2s;}",
         "#qweather-root .qw-forecast-item:hover{background:rgba(0,0,0,0.05);}",
-        "#qweather-root .qw-forecast-day{font-size:10px;opacity:0.72;margin-bottom:2px;}",
+        "#qweather-root .qw-forecast-day{font-size:calc(10px * var(--qw-fs,1));opacity:0.72;margin-bottom:2px;}",
         "#qweather-root .qw-forecast-icon{height:20px;margin-bottom:2px;color:var(--qw-icon,#1a1a2e);}",
         "#qweather-root .qw-forecast-icon svg{width:20px;height:20px;stroke-width:1.6;}",
-        "#qweather-root .qw-forecast-temp{font-size:11px;font-weight:600;}",
+        "#qweather-root .qw-forecast-temp{font-size:calc(11px * var(--qw-fs,1));font-weight:600;}",
         "#qweather-root .qw-forecast-temp .qw-min{opacity:0.65;font-weight:400;}",
-
-        // 天气更新时间已移入设置面板（刷新间隔下方），卡片本体不再显示
-        "#qweather-root .qw-update-time{font-size:11px;opacity:0.55;margin-top:8px;text-align:left;}",
 
         "#qweather-root .qw-resize-handle{position:absolute;right:4px;bottom:4px;width:18px;height:18px;cursor:nwse-resize;pointer-events:auto;z-index:5;border-radius:6px;background:rgba(91,110,225,0.04);}",
         "#qweather-root .qw-resize-handle::after{content:none;display:none;}",
-
-        // 设置面板恒定使用深色文字（始终盖在白色面板上），不随用户配色变化，保证可读。
-        "#qweather-root .qw-settings{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0.97);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);padding:16px 14px 12px;display:none;font-size:13px;color:#1a1a2e;z-index:10;border-radius:16px;pointer-events:auto;flex-direction:column;overflow:hidden;max-width:100%;max-height:100%;width:100%;height:100%;}",
-        "#qweather-root .qw-settings-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid rgba(0,0,0,0.06);flex-shrink:0;}",
-        "#qweather-root .qw-settings-title{font-size:16px;font-weight:600;color:#1a1a2e;}",
-        "#qweather-root .qw-settings-close{width:28px;height:28px;border-radius:50%;border:none;background:rgba(0,0,0,0.05);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;color:#1a1a2e;transition:background 0.2s;pointer-events:auto;}",
-        "#qweather-root .qw-settings-close:hover{background:rgba(0,0,0,0.12);}",
-        "#qweather-root .qw-settings-body{flex:1;overflow-y:auto;min-height:0;}",
-        "#qweather-root .qw-setting-group{margin-bottom:14px;}",
-        "#qweather-root .qw-setting-group:last-child{margin-bottom:0;}",
-        "#qweather-root .qw-label-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px;font-weight:500;}",
-        "#qweather-root .qw-search-box{display:flex;gap:8px;}",
-        "#qweather-root .qw-input{flex:1;padding:9px 12px;border:1px solid rgba(0,0,0,0.1);border-radius:10px;font-size:13px;outline:none;background:rgba(255,255,255,0.8);color:#1a1a2e;min-width:0;}",
-        "#qweather-root .qw-input::placeholder{color:rgba(0,0,0,0.35);}",
-        "#qweather-root .qw-input:focus{border-color:#5b6ee1;box-shadow:0 0 0 3px rgba(91,110,225,0.12);}",
-        "#qweather-root .qw-btn{padding:9px 16px;border:none;border-radius:10px;background:#5b6ee1;color:#fff;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;transition:background 0.2s;pointer-events:auto;}",
-        "#qweather-root .qw-btn:hover{background:#4a5dd0;}",
-        "#qweather-root .qw-search-results{margin-top:8px;background:rgba(255,255,255,0.98);border-radius:10px;border:1px solid rgba(0,0,0,0.08);max-height:120px;overflow-y:auto;display:none;}",
-        "#qweather-root .qw-result-item{padding:9px 12px;cursor:pointer;border-bottom:1px solid rgba(0,0,0,0.04);font-size:13px;pointer-events:auto;}",
-        "#qweather-root .qw-result-item:last-child{border-bottom:none;}",
-        "#qweather-root .qw-result-item:hover{background:rgba(91,110,225,0.08);}",
-        "#qweather-root .qw-result-sub{font-size:11px;opacity:0.5;margin-left:6px;}",
-        "#qweather-root .qw-op-value{font-size:13px;font-weight:600;color:#5b6ee1;}",
-        // 同一分组内相邻的标签行（如“文字颜色/图标颜色”）自动留竖向间距
-        "#qweather-root .qw-setting-group .qw-label-row + .qw-label-row{margin-top:10px;}",
-        // 颜色选择器：去掉系统默认内边距，做成小圆角色块
-        "#qweather-root .qw-color{width:40px;height:26px;padding:0;border:1px solid rgba(0,0,0,0.12);border-radius:8px;background:none;cursor:pointer;pointer-events:auto;}",
-        "#qweather-root .qw-slider{width:100%;height:5px;-webkit-appearance:none;appearance:none;background:rgba(0,0,0,0.1);border-radius:3px;outline:none;cursor:pointer;pointer-events:auto;}",
-        "#qweather-root .qw-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:#5b6ee1;box-shadow:0 2px 6px rgba(91,110,225,0.4);border:none;cursor:pointer;transition:transform 0.15s;}",
-        "#qweather-root .qw-slider::-webkit-slider-thumb:hover{transform:scale(1.15);}",
-        "#qweather-root .qw-slider::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#5b6ee1;box-shadow:0 2px 6px rgba(91,110,225,0.4);border:none;cursor:pointer;}",
-        "#qweather-root .qw-select{width:100%;padding:9px 32px 9px 12px;border:1px solid rgba(0,0,0,0.1);border-radius:10px;font-size:13px;outline:none;background:rgba(255,255,255,0.8);color:#1a1a2e;cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E\");background-repeat:no-repeat;background-position:right 12px center;pointer-events:auto;}",
-        "#qweather-root .qw-select:focus{border-color:#5b6ee1;}",
-        "#qweather-root .qw-save-btn{width:100%;padding:11px;border:none;border-radius:12px;background:linear-gradient(135deg,#5b6ee1 0%,#7c5cbf 100%);color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:transform 0.15s,box-shadow 0.2s;pointer-events:auto;margin-top:12px;}",
-        "#qweather-root .qw-save-btn:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(91,110,225,0.35);}",
-        "#qweather-root .qw-save-btn:active{transform:translateY(0);}",
-        "#qweather-root .qw-row{display:flex;gap:8px;margin-top:10px;}",
-        "#qweather-root .qw-ghost-btn{flex:1;padding:8px;border:1px solid rgba(0,0,0,0.12);border-radius:8px;background:transparent;color:#1a1a2e;font-size:12px;cursor:pointer;transition:background 0.2s,border-color 0.2s;pointer-events:auto;}",
-        "#qweather-root .qw-ghost-btn:hover{background:rgba(0,0,0,0.04);border-color:rgba(0,0,0,0.2);}",
-        "#qweather-root .qw-dev{margin-top:10px;padding-top:8px;border-top:1px solid #eee;font-size:11px;color:#999;text-align:center;line-height:1.6;flex-shrink:0;}",
-        "#qweather-root .qw-dev a{color:#5b6ee1;text-decoration:none;}",
 
         "#qweather-show{position:absolute;right:18px;bottom:18px;z-index:10;width:42px;height:42px;border-radius:50%;border:none;background:rgba(91,110,225,0.92);color:#fff;font-size:20px;cursor:pointer;box-shadow:0 4px 14px rgba(91,110,225,0.4);display:flex;align-items:center;justify-content:center;pointer-events:auto;}"
     ].join("\n");
@@ -387,6 +354,9 @@
                 if (!data || !data.location) return null;
                 var s = Object.assign({}, DEFAULT_SETTINGS, data);
                 s.schemaV = SCHEMA_VERSION;
+                // 字号越界钳制（50–200），非法值回落到 100
+                var fs = parseInt(s.fontScale, 10);
+                s.fontScale = (isNaN(fs) ? 100 : clamp(fs, 50, 200));
                 if (!data.schemaV && s.position) {
                     s.position = { x: s.position.x - 66, y: s.position.y };
                 }
@@ -466,7 +436,7 @@
             if (settings.height) card.style.height = settings.height + "px";
 
             card.innerHTML =
-                '<div class="qw-header" id="qw-drag-handle">' +
+                '<div class="qw-header">' +
                 '  <div class="qw-location-info">' +
                 '    <svg class="qw-location-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
                 '      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>' +
@@ -474,12 +444,6 @@
                 '    </svg>' +
                 '    <span class="qw-location-name" id="qw-location-name">加载中...</span>' +
                 '  </div>' +
-                '  <button class="qw-icon-btn" id="qw-settings-btn" title="设置">' +
-                '    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
-                '      <circle cx="12" cy="12" r="3"/>' +
-                '      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>' +
-                '    </svg>' +
-                '  </button>' +
                 '</div>' +
                 '<div class="qw-clock">' +
                 '  <div class="qw-clock-time">' +
@@ -505,11 +469,13 @@
                 '<div class="qw-resize-handle" id="qw-resize-handle" title="拖动调整大小"></div>';
 
             root.appendChild(card);
-            buildSettingsPanel();
 
             $("#qw-location-name").textContent = settings.location.name;
             applyTheme();
             applyOpacity();
+            applyFontScale();
+            applyModules();
+            ensureFontFace();
             updateClock();
 
             if (ensureMounted()) {
@@ -530,13 +496,9 @@
                 }
             }
 
-            setupDrag($("#qw-drag-handle"));
+            setupDrag(card);
             setupResize($("#qw-resize-handle"));
             setupDesktopContextForward();
-            $("#qw-settings-btn").addEventListener("click", function (e) {
-                e.stopPropagation();
-                toggleSettings();
-            });
 
             window.addEventListener("resize", onWindowResize);
         });
@@ -717,7 +679,6 @@
     function setupDesktopContextForward() {
         safe(function () {
             function forward(e) {
-                if (e.target.closest(".qw-settings")) return;
                 if (e.button !== 2) return;
                 e.preventDefault();
                 e.stopPropagation();
@@ -831,112 +792,55 @@
         pop.__qwObs = obs;
     }
 
-    // ===== 设置面板 =====
-    function buildSettingsPanel() {
+    // ===== 模块开关 / 字号 / 自定义字体（全部由独立设置窗口写入 NAS，这里只负责应用） =====
+    function applyModules() {
+        if (!card) return;
+        // 两个模块至少保留一个：异常配置（都关）时回退为都显示
+        var clock = settings.showClock !== false;
+        var wx = settings.showWeather !== false;
+        if (!clock && !wx) { clock = true; wx = true; }
+        card.classList.toggle("qw-no-clock", !clock);
+        card.classList.toggle("qw-no-weather", !wx);
+    }
+
+    function applyFontScale() {
+        if (!root) return;
+        var fs = parseInt(settings.fontScale, 10);
+        if (isNaN(fs)) fs = 100;
+        root.style.setProperty("--qw-fs", (clamp(fs, 50, 200) / 100).toFixed(3));
+    }
+
+    // 用户自定义字体：读 NAS 上的单字体槽（/qweather-api/font，经 nginx 同源反代）。
+    // fontV 变化（重新上传/删除）时重建 @font-face；未设置字体时移除声明，回退系统字体。
+    var _fontFaceStyle = null;
+    var _fontKey = "";
+    function ensureFontFace() {
+        var key = settings.fontName && settings.fontExt
+            ? settings.fontExt + ":" + (settings.fontV || 1) : "";
+        if (key === _fontKey) return;
+        _fontKey = key;
+        if (_fontFaceStyle) {
+            _fontFaceStyle.parentNode.removeChild(_fontFaceStyle);
+            _fontFaceStyle = null;
+        }
+        if (!key) return;
+        var fmtMap = {
+            ".ttf": "truetype", ".otf": "opentype",
+            ".woff": "woff", ".woff2": "woff2"
+        };
+        _fontFaceStyle = document.createElement("style");
+        _fontFaceStyle.id = "qw-font-face";
+        _fontFaceStyle.textContent =
+            "@font-face{font-family:'QwUserFont';src:url('" + FONT_API +
+            "?v=" + (settings.fontV || 1) + "') format('" +
+            (fmtMap[settings.fontExt] || "truetype") +
+            "');font-display:swap;}";
+        (document.head || document.documentElement).appendChild(_fontFaceStyle);
+        // 主动触发一次字体加载，避免首帧 FOIT
         safe(function () {
-            settingsPanel = document.createElement("div");
-            settingsPanel.className = "qw-settings";
-            settingsPanel.id = "qw-settings-panel";
-            settingsPanel.innerHTML =
-                '<div class="qw-settings-header">' +
-                '  <span class="qw-settings-title">设置</span>' +
-                '  <button class="qw-settings-close" id="qw-settings-close" title="关闭">✕</button>' +
-                '</div>' +
-                '<div class="qw-settings-body">' +
-                '  <div class="qw-setting-group">' +
-                '    <label class="qw-label-row">天气地点</label>' +
-                '    <div class="qw-search-box">' +
-                '      <input type="text" class="qw-input" id="qw-loc-input" placeholder="输入城市名称搜索..." autocomplete="off">' +
-                '      <button class="qw-btn" id="qw-search-btn">搜索</button>' +
-                '    </div>' +
-                '    <div class="qw-search-results" id="qw-search-results"></div>' +
-                '  </div>' +
-                '  <div class="qw-setting-group">' +
-                '    <label class="qw-label-row">背景不透明度（0%=全透明）<span class="qw-op-value" id="qw-op-value">85%</span></label>' +
-                '    <input type="range" class="qw-slider" id="qw-op-slider" min="0" max="100" value="85">' +
-                '  </div>' +
-                '  <div class="qw-setting-group">' +
-                '    <label class="qw-label-row">文字颜色<input type="color" class="qw-color" id="qw-text-color" value="#1a1a2e" title="点击选择文字颜色"></label>' +
-                '    <label class="qw-label-row">图标颜色<input type="color" class="qw-color" id="qw-icon-color" value="#1a1a2e" title="点击选择天气/预报/齿轮图标颜色"></label>' +
-                '    <label class="qw-label-row">定位图标<input type="color" class="qw-color" id="qw-pin-color" value="#e74c3c" title="点击选择城市名左侧定位针颜色"></label>' +
-                '  </div>' +
-                '  <div class="qw-setting-group">' +
-                '    <label class="qw-label-row">自动刷新间隔</label>' +
-                '    <select class="qw-select" id="qw-rf-select">' +
-                '      <option value="10">10 分钟</option>' +
-                '      <option value="30">30 分钟</option>' +
-                '      <option value="60">1 小时</option>' +
-                '      <option value="180">3 小时</option>' +
-                '    </select>' +
-                '    <div class="qw-update-time" id="qw-update-time">天气更新于 --:--</div>' +
-                '  </div>' +
-                '</div>' +
-                '<button class="qw-save-btn" id="qw-save-btn">保存设置</button>' +
-                '<div class="qw-row">' +
-                '  <button class="qw-ghost-btn" id="qw-reset-btn">重置位置</button>' +
-                '  <button class="qw-ghost-btn" id="qw-hide-btn">隐藏小组件</button>' +
-                '</div>' +
-                '<div class="qw-dev">开发者 Misite齊 · <a href="https://github.com/MisiteQ" target="_blank" rel="noopener noreferrer">github.com/MisiteQ</a></div>';
-
-            card.appendChild(settingsPanel);
-
-            $("#qw-settings-close").addEventListener("click", toggleSettings);
-            $("#qw-loc-input").addEventListener("keydown", function (e) {
-                if (e.key === "Enter") searchLocation($("#qw-loc-input").value);
-            });
-            $("#qw-search-btn").addEventListener("click", function () {
-                searchLocation($("#qw-loc-input").value);
-            });
-
-            var opSlider = $("#qw-op-slider");
-            var opValue = $("#qw-op-value");
-            opSlider.value = settings.opacity;
-            opValue.textContent = settings.opacity + "%";
-            opSlider.addEventListener("input", function () {
-                settings.opacity = parseInt(opSlider.value, 10);
-                opValue.textContent = settings.opacity + "%";
-                applyOpacity();
-            });
-
-            // 文字 / 图标 / 定位针颜色：改一下即时预览（保存按钮再统一写入 NAS）
-            var textColorInput = $("#qw-text-color");
-            var iconColorInput = $("#qw-icon-color");
-            var pinColorInput = $("#qw-pin-color");
-            textColorInput.value = settings.textColor || "#1a1a2e";
-            iconColorInput.value = settings.iconColor || "#1a1a2e";
-            pinColorInput.value = settings.pinColor || "#e74c3c";
-            textColorInput.addEventListener("input", function () {
-                settings.textColor = textColorInput.value;
-                applyTheme();
-            });
-            iconColorInput.addEventListener("input", function () {
-                settings.iconColor = iconColorInput.value;
-                applyTheme();
-            });
-            pinColorInput.addEventListener("input", function () {
-                settings.pinColor = pinColorInput.value;
-                applyTheme();
-            });
-
-            $("#qw-rf-select").value = String(settings.refreshInterval);
-
-            $("#qw-save-btn").addEventListener("click", function () {
-                settings.opacity = parseInt(opSlider.value, 10);
-                settings.textColor = textColorInput.value;
-                settings.iconColor = iconColorInput.value;
-                settings.pinColor = pinColorInput.value;
-                settings.refreshInterval = parseInt($("#qw-rf-select").value, 10);
-                saveSettings();
-                startAutoRefresh();
-                showToast("设置已保存，可点击 ✕ 关闭");
-            });
-            $("#qw-reset-btn").addEventListener("click", function () {
-                settings.position = null;
-                var hr = hostEl.getBoundingClientRect();
-                applyDefaultPosition(hr, card.offsetWidth, card.offsetHeight);
-                showToast("已重置位置");
-            });
-            $("#qw-hide-btn").addEventListener("click", hideWidget);
+            if (document.fonts && document.fonts.load) {
+                document.fonts.load("16px 'QwUserFont'").catch(function () {});
+            }
         });
     }
 
@@ -994,24 +898,16 @@
         if (!card) return;
         var w = card.offsetWidth || 340;
         var h = card.offsetHeight || 420;
-         var compact = w < 250 || h < 320;
+         var compact = w < 280 || h < 320;
          var tiny = w < 190 || h < 250;
         card.classList.toggle("qw-compact", compact);
         card.classList.toggle("qw-tiny", tiny);
     }
 
-    function toggleSettings() {
-        if (!settingsPanel) return;
-        settingsPanel.style.display =
-            settingsPanel.style.display === "flex" ? "none" : "flex";
-    }
-
-    function hideWidget() {
+    // 显隐由独立设置窗口写入 NAS，卡片不提供任何设置入口。
+    function hideWidgetLocal() {
         safe(function () {
-            settings.visible = false;
-            saveSettings();
             if (root) root.style.display = "none";
-            showToast("小组件已隐藏，点右下角按钮可恢复");
             buildShowButton();
         });
     }
@@ -1155,7 +1051,7 @@
         safe(function () {
             var isResizing = false;
             var startX, startY, initWidth, initHeight, initLeft, initTop;
-            var MIN_W = 280, MIN_H = 320;
+            var MIN_W = 240, MIN_H = 120;
 
             handle.addEventListener("mousedown", function (e) {
                 isResizing = true;
@@ -1197,167 +1093,6 @@
                     updateCompactMode();
                 }
             });
-        });
-    }
-
-    // ===== 地点搜索（内置中国城市库 + Open-Meteo 双源合并） =====
-    function normPlaceName(s) {
-        return (s || "").toLowerCase().replace(/\s+/g, "");
-    }
-
-    // 加载中国行政区划坐标库：内存 → localStorage → 同源 JSON。
-    // 任何失败都返回 null（搜索自动退化为仅 Open-Meteo）。
-    var CN_CITIES = null;
-    var CN_CITIES_LOADING = null;
-    function loadCnCities() {
-        if (CN_CITIES) return Promise.resolve(CN_CITIES);
-        if (CN_CITIES_LOADING) return CN_CITIES_LOADING;
-        try {
-            var raw = localStorage.getItem(CN_CITIES_CACHE_KEY);
-            if (raw) {
-                CN_CITIES = JSON.parse(raw);
-                if (CN_CITIES && CN_CITIES.length) return Promise.resolve(CN_CITIES);
-                CN_CITIES = null;
-            }
-        } catch (e) {}
-        CN_CITIES_LOADING = fetch("/qweather-cities.json", { credentials: "same-origin" })
-            .then(function (r) { return r.json(); })
-            .then(function (list) {
-                if (!list || !list.length) throw new Error("empty");
-                CN_CITIES = list;
-                try { localStorage.setItem(CN_CITIES_CACHE_KEY, JSON.stringify(list)); } catch (e) {}
-                CN_CITIES_LOADING = null;
-                return CN_CITIES;
-            })
-            .catch(function () {
-                CN_CITIES_LOADING = null;
-                return null;
-            });
-        return CN_CITIES_LOADING;
-    }
-
-    // 本地检索：条目格式 [名称, 省份, 纬度, 经度]；
-    // 名称精确 > 名称前缀 > 名称包含，避免省份匹配淹没结果
-    function searchCnLocal(query) {
-        if (!CN_CITIES) return [];
-        var q = normPlaceName(query);
-        var exact = [], prefix = [], contains = [];
-        for (var i = 0; i < CN_CITIES.length; i++) {
-            var it = CN_CITIES[i];
-            var rec = {
-                name: it[0], admin1: it[1], country: "中国",
-                latitude: it[2], longitude: it[3], local: true
-            };
-            if (normPlaceName(it[0]) === q) exact.push(rec);
-            else if (it[0].indexOf(query) === 0) prefix.push(rec);
-            else if (it[0].indexOf(query) > 0) contains.push(rec);
-        }
-        return exact.concat(prefix, contains);
-    }
-
-    // Open-Meteo 地理编码（国际城市，结果带结构化 admin1/country）
-    function searchOpenMeteo(name) {
-        var url = DIRECT_GEOCODE + "?name=" + encodeURIComponent(name) +
-            "&count=10&language=zh&format=json";
-        return fetch(url, { credentials: "same-origin" })
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-                return (data.results || []).map(function (item) {
-                    return {
-                        name: item.name,
-                        admin1: item.admin1 || "",
-                        country: item.country || "",
-                        latitude: item.latitude,
-                        longitude: item.longitude,
-                        local: false
-                    };
-                });
-            })
-            .catch(function () { return []; });
-    }
-
-    // 合并去重：同名同国 或 坐标接近（0.1°内）视为同一地点，本地结果优先；
-    // 排序：本地精确 > Open-Meteo 精确 > 本地前缀 > Open-Meteo 前缀 > 包含
-    function mergeSearchResults(localList, omList, query) {
-        var seen = {};
-        var out = [];
-        function dedupePush(item) {
-            var nameKey = item.country + "|" + normPlaceName(item.name);
-            var coordKey = Math.round(item.latitude * 10) + "," +
-                Math.round(item.longitude * 10);
-            if (seen[nameKey] || seen[coordKey]) return;
-            seen[nameKey] = seen[coordKey] = true;
-            out.push(item);
-        }
-        localList.forEach(dedupePush);
-        omList.forEach(dedupePush);
-
-        var q = normPlaceName(query);
-        function rankOf(item) {
-            var n = normPlaceName(item.name);
-            var base = (n === q) ? 0 : (n.indexOf(q) === 0 ? 2 : 4);
-            return base + (item.local ? 0 : 1);
-        }
-        out.sort(function (a, b) { return rankOf(a) - rankOf(b); });
-        return out.slice(0, 10);
-    }
-
-    function searchLocation(name) {
-        safe(function () {
-            name = (name || "").trim();
-            if (!name) { showToast("请输入地点名称"); return; }
-
-            var resultsContainer = $("#qw-search-results");
-            resultsContainer.innerHTML = '<div class="qw-result-item" style="color:#999">搜索中...</div>';
-            resultsContainer.style.display = "block";
-
-            // 双源并行；两个源内部均已兜底（失败返回空数组），不会整体 reject
-            Promise.all([loadCnCities(), searchOpenMeteo(name)])
-                .then(function (res) {
-                    renderSearchResults(
-                        mergeSearchResults(searchCnLocal(name), res[1] || [], name));
-                })
-                .catch(function () {
-                    resultsContainer.innerHTML =
-                        '<div class="qw-result-item" style="color:#f66">搜索失败</div>';
-                });
-        });
-    }
-
-    function renderSearchResults(results) {
-        safe(function () {
-            var container = $("#qw-search-results");
-            container.innerHTML = "";
-            if (results.length === 0) {
-                container.innerHTML =
-                    '<div class="qw-result-item" style="color:#999">未找到相关地点</div>';
-                container.style.display = "block";
-                return;
-            }
-            results.forEach(function (item) {
-                var div = document.createElement("div");
-                div.className = "qw-result-item";
-                var sub = [item.admin1, item.country].filter(
-                    function (v, i, a) { return v && a.indexOf(v) === i; }
-                ).join(" · ");
-                div.innerHTML = item.name +
-                    (sub ? '<span class="qw-result-sub">' + sub + "</span>" : "");
-                div.addEventListener("click", function () {
-                    settings.location = {
-                        name: item.name,
-                        latitude: item.latitude,
-                        longitude: item.longitude,
-                        country: item.country || ""
-                    };
-                    saveSettings();
-                    $("#qw-location-name").textContent = item.name;
-                    container.style.display = "none";
-                    fetchWeather();
-                    showToast("已切换到 " + item.name + "，可点击保存设置");
-                });
-                container.appendChild(div);
-            });
-            container.style.display = "block";
         });
     }
 
@@ -1412,17 +1147,14 @@
             renderForecast(daily);
             updateClock();
 
-            var d = updateTime ? new Date(updateTime) : new Date();
-            $("#qw-update-time").textContent = "天气更新于 " +
-                String(d.getHours()).padStart(2, "0") + ":" +
-                String(d.getMinutes()).padStart(2, "0");
+            // 天气更新时间只在独立设置窗口中展示，卡片本体不显示
             updateCompactMode();
         });
     }
 
     function fetchWeather() {
         safe(function () {
-            if (!settings.location) return;
+            if (!settings.location || settings.showWeather === false) return;
             var loc = settings.location;
 
             var params = new URLSearchParams({
@@ -1457,7 +1189,7 @@
     // 加载时优先渲染缓存；缓存过期才后台刷新
     function loadWeatherWithCache() {
         safe(function () {
-            if (!settings.location) return;
+            if (!settings.location || settings.showWeather === false) return;
             var loc = settings.location;
             var cached = loadWeatherCache();
 
@@ -1512,6 +1244,100 @@
         );
     }
 
+    // ===== 设置轮询：独立设置窗口保存后，卡片热应用（无需刷新桌面） =====
+    // 桌面卡片没有任何设置入口，NAS settings.json 是唯一来源；
+    // 每 4 秒轻量 GET（nginx 直接 alias 文件，不走应用进程）。
+    function normalizeSettings(data) {
+        var s = Object.assign({}, DEFAULT_SETTINGS, data || {});
+        s.schemaV = SCHEMA_VERSION;
+        var fs = parseInt(s.fontScale, 10);
+        s.fontScale = isNaN(fs) ? 100 : clamp(fs, 50, 200);
+        return s;
+    }
+
+    // 本地刚保存（拖动/缩放/恢复按钮）后给服务端一点落盘时间，避免读到旧值
+    function settingsSig(s) {
+        return JSON.stringify(s);
+    }
+
+    function pollSettings() {
+        fetch(SETTINGS_GET, { credentials: "same-origin", cache: "no-store" })
+            .then(function (r) {
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                return r.json();
+            })
+            .then(function (data) {
+                if (!data || !data.location) return;
+                var next = normalizeSettings(data);
+                if (settingsSig(next) === settingsSig(settings)) return;
+                applyRemoteSettings(next);
+            })
+            .catch(function () { /* 静默：下轮再试 */ });
+    }
+
+    function applyRemoteSettings(next) {
+        var prev = settings || {};
+        settings = next;
+
+        // 外观类：直接重放
+        applyOpacity();
+        applyTheme();
+        applyFontScale();
+        ensureFontFace();
+        applyModules();
+
+        // 显隐
+        if (settings.visible === false) {
+            if (root && root.style.display !== "none") hideWidgetLocal();
+        } else {
+            var btn = document.getElementById("qweather-show");
+            if (btn && btn.parentNode) {
+                btn.parentNode.removeChild(btn);
+                showBtn = null;
+            }
+            if (!root || !document.documentElement.contains(root) ||
+                root.style.display === "none") {
+                // 本次会话尚未建卡（一直隐藏）→ 完整建卡并拉天气
+                startWidget();
+                return;
+            }
+        }
+
+        // 城市
+        var nameEl = document.getElementById("qw-location-name");
+        if (nameEl && (!prev.location || prev.location.latitude !== settings.location.latitude ||
+                       prev.location.longitude !== settings.location.longitude ||
+                       prev.location.name !== settings.location.name)) {
+            nameEl.textContent = settings.location.name;
+            if (settings.showWeather !== false) fetchWeather();
+        }
+
+        // 刷新间隔
+        if (prev.refreshInterval !== settings.refreshInterval) {
+            startAutoRefresh();
+        }
+
+        // 位置（设置窗口点了“重置卡片位置”→ position=null；或外部改了坐标）
+        if (settingsSig(prev.position || null) !== settingsSig(settings.position || null)) {
+            if (!settings.position && hostEl) {
+                var hr = hostEl.getBoundingClientRect();
+                applyDefaultPosition(hr, card.offsetWidth, card.offsetHeight);
+            } else if (hostEl) {
+                placeWidget();
+            }
+        }
+
+        // 模块显隐 / 字号变化后紧凑阈值与位置重算
+        updateCompactMode();
+        onWindowResize();
+    }
+
+    var settingsPollTimer = null;
+    function startSettingsPoll() {
+        if (settingsPollTimer) clearInterval(settingsPollTimer);
+        settingsPollTimer = setInterval(pollSettings, 4000);
+    }
+
     if (typeof window !== "undefined") {
         setInterval(updateClock, 1000);
     }
@@ -1541,6 +1367,8 @@
             loadSettings().then(function (srv) {
                 settings = srv || Object.assign({}, DEFAULT_SETTINGS);
                 startLoginPolling();
+                // 独立设置窗口保存后卡片热应用（显隐态也需要轮询）
+                startSettingsPoll();
                 if (document.readyState === "complete") {
                     setTimeout(startWidget, 300);
                 } else {

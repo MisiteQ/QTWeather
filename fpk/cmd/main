@@ -1,5 +1,5 @@
 #!/bin/bash
-# 天气预报小部件 - 启停管理脚本
+# 时钟天气 QTWeather 小部件 - 启停管理脚本
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 APP_DIR="${TRIM_APPDEST:-$(dirname -- "${SCRIPT_DIR}")}"
