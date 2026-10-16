@@ -101,15 +101,15 @@
     // ===== API（直连 Open-Meteo，CORS 开放，无需 Key / 无需经 NAS 网关） =====
     var DIRECT_WEATHER = "https://api.open-meteo.com/v1/forecast";
     var DIRECT_GEOCODE = "https://geocoding-api.open-meteo.com/v1/search";
-    // 设置持久化：存 NAS 服务端，跨浏览器/跨设备共享。
-    // widget.js 注入在桌面页（origin: https://<nas-host>），桌面页的
-    // session 不覆盖 /app/<name>/api/ 网关路径（网关 404）。改为走应用
-    // 子域 https://com~qweather-widget.<nas-host>/api/settings——子域
-    // 请求携带 session cookie（fnOS 主域 cookie 对子域生效），网关认证
-    // 通过；跨域凭据需 CORS 回显具体 Origin + Allow-Credentials:true。
-    // localStorage 仅作即时回退与离线缓存。
-    var SETTINGS_API = location.protocol + "//com~qweather-widget." +
-        location.hostname + "/api/settings";
+    // 设置持久化：唯一数据源是 NAS 本机 settings.json，由 nginx 同源
+    // 直接提供（/qweather-settings 读、/qweather-api/settings 写），
+    // 纯相对路径——IP 访问与域名访问都可用，也不需要 CORS/凭据。
+    // （fnOS 应用网关 /app/<name>/api/* 对桌面页一律回 invalid token，
+    //  故不能走网关。）
+    // 浏览器 localStorage 完全不参与设置的读写——换浏览器、换电脑、
+    // 清缓存后，城市定位等设置一律从 NAS 读取。
+    var SETTINGS_GET = "/qweather-settings";
+    var SETTINGS_POST = "/qweather-api/settings";
     // 城市搜索数据源：
     //   1) 内置中国行政区划坐标库（/qweather-cities.json，省/市/县三级 3200+，
     //      来源阿里 DataV GeoAtlas，脚本 _gen_cities.py 可再生成）——
@@ -119,7 +119,7 @@
     var CN_CITIES_CACHE_KEY = "qweather_widget_cities_v1";
 
     // ===== 配置常量 =====
-    var STORAGE_KEY = "qweather_widget_settings";
+    // 仅天气数据做浏览器侧缓存（按经纬度键控）；设置不进浏览器缓存。
     var WEATHER_CACHE_KEY = "qweather_widget_weather_cache";
     var SCHEMA_VERSION = 2;
     var DEFAULT_SETTINGS = {
@@ -280,75 +280,54 @@
         (document.head || document.documentElement).appendChild(style);
     }
 
-    // ===== 设置读写 =====
-    // 主存储为 NAS 服务端 settings.json（跨浏览器/跨设备共享）。
-    // localStorage 仅作即时回退（服务端未就绪/离线时使用），确保
-    // 页面加载时不会因网络延迟而长时间无设置。
+    // ===== 设置读写（NAS settings.json 为唯一数据源） =====
+    // 只在两个时机访问服务端：启动时读一次、用户改动后写一次。
+    // 不做任何 localStorage 读写——换浏览器/换电脑/清缓存后设置不变。
     var _saveTimer = null;
-    var _serverSettingsLoaded = false;
 
+    // 启动时从 NAS 读取设置；NAS 无记录或请求失败返回 null（调用方用默认值）。
     function loadSettings() {
-        // 即时回退：从 localStorage 读取（可能为空 → 返回默认值）
-        try {
-            var saved = localStorage.getItem(STORAGE_KEY);
-            if (saved) {
-                var parsed = JSON.parse(saved);
-                var s = Object.assign({}, DEFAULT_SETTINGS, parsed);
-                if (!parsed.schemaV && s.position) {
-                    s.position = { x: s.position.x - 66, y: s.position.y };
-                }
-                s.schemaV = SCHEMA_VERSION;
-                return s;
-            }
-        } catch (e) {}
-        return Object.assign({}, DEFAULT_SETTINGS);
-    }
-
-    // 从 NAS 服务端加载设置（异步后台调用，不阻塞 widget 挂载）。
-    // 成功 → 用服务端数据覆盖 settings 并重新渲染/定位。
-    // 失败 → 返回 null，调用方用 localStorage 回退。
-    function loadSettingsFromServer() {
-        return fetch(SETTINGS_API, { credentials: "include" })
+        return fetch(SETTINGS_GET, { credentials: "same-origin", cache: "no-store" })
             .then(function (r) {
-                if (!r.ok) return null;
+                if (!r.ok) throw new Error("HTTP " + r.status);
                 return r.json();
             })
             .then(function (data) {
                 if (!data || !data.location) return null;
-                _serverSettingsLoaded = true;
-                var merged = Object.assign(
-                    {}, DEFAULT_SETTINGS, data);
-                merged.schemaV = SCHEMA_VERSION;
-                if (!data.schemaV && merged.position) {
-                    merged.position = {
-                        x: merged.position.x - 66, y: merged.position.y
-                    };
+                var s = Object.assign({}, DEFAULT_SETTINGS, data);
+                s.schemaV = SCHEMA_VERSION;
+                if (!data.schemaV && s.position) {
+                    s.position = { x: s.position.x - 66, y: s.position.y };
                 }
-                settings = merged;
-                try {
-                    localStorage.setItem(
-                        STORAGE_KEY, JSON.stringify(settings));
-                } catch (e) {}
-                return settings;
+                return s;
             })
-            .catch(function () { return null; });
+            .catch(function (e) {
+                console.warn("[qweather] 读取 NAS 设置失败:", e);
+                return null;
+            });
     }
 
+    // 写回 NAS settings.json。失败必须可见（绝不再静默退回浏览器缓存）。
     function saveSettings() {
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-        } catch (e) {}
         if (_saveTimer) clearTimeout(_saveTimer);
         _saveTimer = setTimeout(function () {
             _saveTimer = null;
-            try {
-                fetch(SETTINGS_API, {
-                    method: "POST",
-                    credentials: "include",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(settings)
-                }).catch(function () {});
-            } catch (e) {}
+            fetch(SETTINGS_POST, {
+                method: "POST",
+                credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(settings)
+            }).then(function (r) {
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                return r.json();
+            }).then(function (d) {
+                if (!d || d.ok !== true) {
+                    throw new Error((d && d.error) || "服务端返回异常");
+                }
+            }).catch(function (e) {
+                console.warn("[qweather] 保存到 NAS 失败:", e);
+                showToast("保存到 NAS 失败，设置未生效");
+            });
         }, 400);
     }
 
@@ -379,6 +358,13 @@
     // ===== 创建小组件 DOM =====
     function buildWidget() {
         safe(function () {
+            if (root && document.documentElement.contains(root)) {
+                // 已在文档中：只做一次重挂/定位，避免重复创建第二份 DOM
+                root.style.display = "";
+                ensureMounted();
+                placeWidget();
+                return;
+            }
             root = document.createElement("div");
             root.id = "qweather-root";
 
@@ -463,22 +449,6 @@
             });
 
             window.addEventListener("resize", onWindowResize);
-        });
-    }
-
-    // 服务端设置到达后，重新应用位置/大小/透明度/城市名
-    function applyServerSettingsRefresh() {
-        safe(function () {
-            if (!root || !card) return;
-            if (settings.width) card.style.width = settings.width + "px";
-            if (settings.height) card.style.height = settings.height + "px";
-            var ln = $("#qw-location-name");
-            if (ln && settings.location) ln.textContent = settings.location.name;
-            applyOpacity();
-            if (ensureMounted()) {
-                placeWidget();
-                updateCompactMode();
-            }
         });
     }
 
@@ -907,9 +877,14 @@
 
     function buildShowButton() {
         safe(function () {
-            if (document.getElementById("qweather-show")) return;
+            var exist = document.getElementById("qweather-show");
+            if (exist) { showBtn = exist; return; }
             var host = findDesktopHost();
             if (!host) { setTimeout(buildShowButton, 1000); return; }
+            // 旧按钮若已从文档脱离，先清掉引用，避免重复挂载
+            if (showBtn && showBtn.parentNode) {
+                showBtn.parentNode.removeChild(showBtn);
+            }
             showBtn = document.createElement("button");
             showBtn.id = "qweather-show";
             showBtn.textContent = "🌤";
@@ -921,11 +896,9 @@
                     showBtn.parentNode.removeChild(showBtn);
                 }
                 showBtn = null;
-                if (root) {
-                    root.style.display = "";
-                    ensureMounted();
-                    placeWidget();
-                }
+                // root 可能从未创建（本次会话一直处于隐藏态），
+                // 统一交给 startWidget 决定建卡片还是建按钮
+                startWidget();
             });
             host.appendChild(showBtn);
         });
@@ -940,9 +913,18 @@
                     if (root && document.documentElement.contains(root)) {
                         root.parentNode.removeChild(root);
                     }
+                    if (showBtn && showBtn.parentNode) {
+                        showBtn.parentNode.removeChild(showBtn);
+                        showBtn = null;
+                    }
                     return;
                 }
-                if (settings.visible === false) return;
+                if (settings.visible === false) {
+                    // 隐藏态：fnOS 桌面重建时恢复按钮会被一并清掉，
+                    // 这里负责重新挂回（此前漏了，导致隐藏后按钮再也不出现）
+                    if (!document.getElementById("qweather-show")) buildShowButton();
+                    return;
+                }
                 if (!root) return;
                 hostEl = findDesktopHost();
                 if (!hostEl) return;
@@ -971,19 +953,8 @@
             } else {
                 var hasRoot = root && document.documentElement.contains(root);
                 var hasShowBtn = document.getElementById("qweather-show");
-                if (!hasRoot && !hasShowBtn && settings.visible !== false) {
-                    // 立即用 localStorage 设置挂载，后台异步拉取服务端设置
-                    buildWidget();
-                    loadWeatherWithCache();
-                    startAutoRefresh();
-                    startWatchdog();
-                    if (!_serverSettingsLoaded) {
-                        loadSettingsFromServer().then(function (srv) {
-                            if (srv && root) {
-                                applyServerSettingsRefresh();
-                            }
-                        });
-                    }
+                if (!hasRoot && !hasShowBtn) {
+                    startWidget();
                 }
             }
 
@@ -1406,40 +1377,38 @@
     }
 
     // ===== 初始化 =====
-    function init() {
+    // 挂载入口：settings 已就绪（NAS 读到或回退默认值）后才会被调用，
+    // 因此首次渲染即使用 NAS 保存的城市/位置/显隐状态。
+    function startWidget() {
         safe(function () {
-            settings = loadSettings();
-            injectStylesheet();
-            startLoginPolling();
-
-            var tryStart = function () {
-                if (isLoginScreen()) return;
-                if (settings.visible === false) {
-                    buildShowButton();
-                    return;
-                }
-                // 立即用 localStorage 设置挂载（不阻塞），
-                // 后台异步从 NAS 服务端拉取设置，成功后覆盖刷新。
+            if (isLoginScreen()) return;
+            if (settings.visible === false) {
+                buildShowButton();
+            } else {
                 buildWidget();
                 loadWeatherWithCache();
                 startAutoRefresh();
-                startWatchdog();
-                if (!_serverSettingsLoaded) {
-                    loadSettingsFromServer().then(function (srv) {
-                        if (srv && root) {
-                            applyServerSettingsRefresh();
-                        }
+            }
+            // 隐藏态也要跑看门狗，否则桌面重建后恢复按钮丢失无法自愈
+            startWatchdog();
+        });
+    }
+
+    function init() {
+        safe(function () {
+            injectStylesheet();
+            // 先从 NAS 读设置（同源本地请求，毫秒级），再挂载。
+            loadSettings().then(function (srv) {
+                settings = srv || Object.assign({}, DEFAULT_SETTINGS);
+                startLoginPolling();
+                if (document.readyState === "complete") {
+                    setTimeout(startWidget, 300);
+                } else {
+                    window.addEventListener("load", function () {
+                        setTimeout(startWidget, 300);
                     });
                 }
-            };
-
-            if (document.readyState === "complete") {
-                setTimeout(tryStart, 300);
-            } else {
-                window.addEventListener("load", function () {
-                    setTimeout(tryStart, 300);
-                });
-            }
+            });
         });
     }
 

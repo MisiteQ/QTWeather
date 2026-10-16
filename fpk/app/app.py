@@ -95,6 +95,9 @@ CITIES_JSON_DIRECT = os.path.join(APP_DEST_DIR, "static", "cities_cn.json")
 # 小组件设置持久化文件（存 NAS，跨浏览器/跨设备共享）
 SETTINGS_FILE = os.path.join(APP_DATA_DIR, "settings.json")
 
+# 本机应用端口（gunicorn 绑定，nginx 反代 settings 写接口用）
+SERVICE_PORT = os.environ.get("TRIM_SERVICE_PORT", "5698")
+
 # widget.js 由 nginx 直接 alias 提供（不经应用网关）：
 # 登录前网关 token 无效会拒绝 /app/<name>/widget.js，而脚本必须在
 # SPA 登录跳转前就执行——已执行的 IIFE 不随 <script> 标签被 SPA
@@ -126,7 +129,23 @@ location = /qweather-cities.json {
     alias %s;
     default_type application/json;
 }
-""" % (DESKTOP_INDEX, WIDGET_JS_DIRECT, CITIES_JSON_DIRECT)
+# 小组件设置（城市定位等）持久化：唯一数据源是 NAS 本机
+# <数据目录>/settings.json，由 nginx 同源提供，绕开 fnOS 应用网关
+# （网关对 /app/<name>/api/* 一律回 invalid token，桌面页无法调用）。
+# GET 直接 alias 文件（免反代、应用进程挂了也能读）；POST 反代到本机
+# 应用端口写盘。两者都禁用缓存，保证每次读到的都是 NAS 最新数据。
+location = /qweather-settings {
+    alias %s;
+    default_type application/json;
+    add_header cache-control no-store;
+}
+location = /qweather-api/settings {
+    proxy_pass http://127.0.0.1:%s/api/settings;
+    proxy_set_header Host $host;
+    add_header cache-control no-store;
+}
+""" % (DESKTOP_INDEX, WIDGET_JS_DIRECT, CITIES_JSON_DIRECT,
+       SETTINGS_FILE, SERVICE_PORT)
 
 WIDGET_SCRIPT_TAG = '<script src="/qweather-widget.js"></script>'
 
