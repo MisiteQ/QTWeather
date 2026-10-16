@@ -1,10 +1,17 @@
 #!/bin/bash
-# 升级后：重新安装依赖（以防版本变化）
+# 升级后启动服务（若依赖缺失则由 cmd/main 按需安装，避免重复 pip install 导致超时）
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 APP_DIR="${TRIM_APPDEST:-$(dirname -- "${SCRIPT_DIR}")}"
 LIBS_DIR="${APP_DIR}/libs"
 
-if [ -f "${APP_DIR}/requirements.txt" ]; then
+need_install=1
+if [ -d "${LIBS_DIR}" ]; then
+    if PYTHONPATH="${LIBS_DIR}" python3 -c "import gunicorn, flask, requests" 2>/dev/null; then
+        need_install=0
+    fi
+fi
+
+if [ "${need_install}" -eq 1 ] && [ -f "${APP_DIR}/requirements.txt" ]; then
     mkdir -p "${LIBS_DIR}"
     python3 -m pip install \
         --target "${LIBS_DIR}" \

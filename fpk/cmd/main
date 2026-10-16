@@ -8,10 +8,13 @@ TEMP_LOG_FILE="${TRIM_TEMP_LOGFILE:-/tmp/com.qweather.widget.log}"
 PID_FILE="${PKGVAR_DIR}/app.pid"
 LOG_FILE="${PKGVAR_DIR}/app.log"
 LIBS_DIR="${APP_DIR}/libs"
-# 纯 unix socket 应用（参照 fn-fancontrol）：
-# socket 放在 target 目录（/var/apps/<app>/target -> @appcenter/<app>）下，
-# trim_sac 扫描各应用 target 目录的 *.sock，填充 gateway_socket 并向
-# trim_http_cgi 注册网关转发 /app/com.qweather.widget/*
+# gunicorn 双绑定（参照 fn-seekbox / fnytdlp 等网关应用）：
+#   - unix socket 放在 target 目录（/var/apps/<app>/target -> @appcenter/<app>）
+#     下，trim_sac 扫描各应用 target 目录的 *.sock，填充 gateway_socket 并向
+#     trim_http_cgi 注册网关转发 /app/com.qweather.widget/* —— 桌面图标窗口
+#     经同源 HTTPS 网关打开（局域网 IP / 域名 / http / https 全部可用）；
+#   - 同时保留 127.0.0.1:5698 TCP 绑定，供本机 nginx 反代
+#     /qweather-api/settings、/qweather-api/font 使用。
 SOCKET_FILE="${APP_DIR}/app.sock"
 SERVICE_PORT="${TRIM_SERVICE_PORT:-5698}"
 
@@ -73,6 +76,11 @@ ensure_deps() {
 
 case "$1" in
     start)
+        # 彻底清理所有旧 gunicorn 进程（防止端口冲突导致启动失败）
+        pkill -f "gunicorn.*${SOCKET_FILE}" 2>/dev/null
+        pkill -f "gunicorn.*127.0.0.1:${SERVICE_PORT}" 2>/dev/null
+        sleep 1
+
         # 检查是否已在运行
         if [ -f "$PID_FILE" ]; then
             pid=$(cat "$PID_FILE" | tr -d '[:space:]')
@@ -86,6 +94,9 @@ case "$1" in
         mkdir -p "${PKGVAR_DIR}"
         mkdir -p /var/run
 
+        # 应用安装目录必须可被网关进程穿越（socket 放在该目录下）
+        chmod 755 "${APP_DIR}" 2>/dev/null
+
         # 清理旧的 socket 文件
         rm -f "${SOCKET_FILE}"
 
@@ -95,12 +106,21 @@ case "$1" in
             exit 1
         fi
 
-        # 启动 gunicorn，使用 manifest 声明的本地服务端口供桌面 iframe 访问。
+        # 启动 gunicorn，同时绑定：
+        #   1) unix socket（app.sock）——trim_sac 扫描 target 目录后向
+        #      trim_http_cgi 注册网关转发，点桌面图标时同源 iframe 走
+        #      https://<host>/app/com.qweather.widget/，HTTP/HTTPS、
+        #      局域网/域名访问均可打开，且不受混合内容与外网端口限制；
+        #   2) 127.0.0.1:${SERVICE_PORT}——供本机 nginx 反代
+        #      /qweather-api/settings、/qweather-api/font 使用。
+        # --umask 0 让 socket 文件对网关进程可连接（需要写权限）。
         cd "${APP_DIR}"
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] 启动 gunicorn，Port ${SERVICE_PORT}" >> "${LOG_FILE}"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] 启动 gunicorn，unix:${SOCKET_FILE} + 127.0.0.1:${SERVICE_PORT}" >> "${LOG_FILE}"
 
         PYTHONPATH="${LIBS_DIR}" nohup python3 -m gunicorn \
+            --bind "unix:${SOCKET_FILE}" \
             --bind "127.0.0.1:${SERVICE_PORT}" \
+            --umask 0 \
             --workers 1 \
             --threads 4 \
             --timeout 30 \
@@ -111,10 +131,12 @@ case "$1" in
 
         echo $! > "${PID_FILE}"
 
-        # 等待 socket 就绪（最多20秒，依赖安装可能需要时间）
+        # 等待服务就绪（最多20秒，依赖安装可能需要时间）：
+        # TCP 健康检查通过后再显式放开 socket 权限（双保险）。
         for i in $(seq 1 20); do
             if curl -sf "http://127.0.0.1:${SERVICE_PORT}/health" > /dev/null 2>&1; then
-                echo "[$(date '+%Y-%m-%d %H:%M:%S')] 服务启动成功" >> "${LOG_FILE}"
+                chmod 777 "${SOCKET_FILE}" 2>/dev/null
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] 服务启动成功（socket 与端口均就绪）" >> "${LOG_FILE}"
                 exit 0
             fi
             sleep 1

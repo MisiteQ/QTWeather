@@ -4,9 +4,10 @@
             "title": "时钟天气QTWeather",
             "icon": "images/icon-{0}.png",
             "type": "iframe",
-            "protocol": "http",
-            "port": "5698",
-            "url": "/",
+            "protocol": "",
+            "gatewaySocket": "app.sock",
+            "gatewayPrefix": "/app/qweather",
+            "url": "/app/qweather",
             "allUsers": true,
             "control": {"accessPerm": "editable"}
         }

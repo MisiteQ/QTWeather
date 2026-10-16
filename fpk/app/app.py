@@ -1,5 +1,5 @@
 """
-时钟天气 QTWeather（com.qweather.widget）- Flask 后端服务（FPK 版本）v3.0.0
+时钟天气 QTWeather（com.qweather.widget）- Flask 后端服务（FPK 版本）v3.0.2
 使用 Open-Meteo 免费天气 API（无需 API Key）
 
 注入机制（v2.1.0，零 /usr/trim/www 写入）：
@@ -48,7 +48,7 @@ app = Flask(__name__, static_folder="static", static_url_path="")
 # 上传体上限：自定义字体文件最大 25MB（nginx 侧也要同步放开，见 QW_NGINX_CONF_CONTENT）
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
 
-GATEWAY_PREFIX = "/app/com.qweather.widget"
+GATEWAY_PREFIX = "/app/qweather"
 
 
 class _GatewayPrefixMiddleware:
@@ -70,6 +70,10 @@ app.wsgi_app = _GatewayPrefixMiddleware(app.wsgi_app, GATEWAY_PREFIX)
 GEOCODING_API = "https://geocoding-api.open-meteo.com/v1/search"
 WEATHER_API = "https://api.open-meteo.com/v1/forecast"
 TIMEOUT = 10
+
+# 版本更新检查（只检查，不自动下载/安装）
+RELEASE_API = "https://api.github.com/repos/MisiteQ/QTWeather/releases/latest"
+APP_VERSION = "3.0.2"
 
 # ===== 飞牛路径 =====
 FNOS_WWW_INDEX = "/usr/trim/www/index.html"
@@ -164,11 +168,14 @@ location = /qweather-icon.png {
     default_type image/png;
     add_header cache-control public;
 }
-# 用户自定义字体：上传（POST multipart，≤25m）/ 读取（GET，供 @font-face）/ 删除（DELETE）。
-# ^~ 前缀与上面的精确匹配 location 互不影响。
-location ^~ /qweather-api/font {
+# 应用后端 API 统一前缀（设置中心经同源 https://<host>/qweather-api/ 调用，
+# 同时覆盖字体上传 25MB、设置写盘、天气/地理编码代理、GitHub 检查更新）：
+# 设置中心在 fnOS 网关 iframe（/app/<name>/）内运行，浏览器直连第三方
+# 站点可能被网关 CSP 拦截，故天气、地理编码、更新检查一律由 NAS 后端
+# 代理发起，前端只做同源请求。^~ 前缀与上面的精确匹配 location 互不影响。
+location ^~ /qweather-api/ {
     client_max_body_size 25m;
-    proxy_pass http://127.0.0.1:%s/api/font;
+    proxy_pass http://127.0.0.1:%s/api/;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     add_header cache-control no-store;
@@ -176,21 +183,16 @@ location ^~ /qweather-api/font {
 # 小组件设置（城市定位等）持久化：唯一数据源是 NAS 本机
 # <数据目录>/settings.json，由 nginx 同源提供，绕开 fnOS 应用网关
 # （网关对 /app/<name>/api/* 一律回 invalid token，桌面页无法调用）。
-# GET 直接 alias 文件（免反代、应用进程挂了也能读）；POST 反代到本机
-# 应用端口写盘。两者都禁用缓存，保证每次读到的都是 NAS 最新数据。
+# GET 直接 alias 文件（免反代、应用进程挂了也能读）；写盘走上面对
+# /qweather-api/settings 的反代。两者都禁用缓存，保证读到的是 NAS 最新数据。
 location = /qweather-settings {
     alias %s;
     default_type application/json;
     add_header cache-control no-store;
 }
-location = /qweather-api/settings {
-    proxy_pass http://127.0.0.1:%s/api/settings;
-    proxy_set_header Host $host;
-    add_header cache-control no-store;
-}
 """ % (DESKTOP_INDEX, WIDGET_JS_DIRECT, CITIES_JSON_DIRECT,
        SETTINGS_HTML_DIRECT, ICON_DIRECT, SERVICE_PORT,
-       SETTINGS_FILE, SERVICE_PORT)
+       SETTINGS_FILE)
 
 WIDGET_SCRIPT_TAG = '<script src="/qweather-widget.js"></script>'
 
@@ -232,9 +234,9 @@ def index_page():
 @app.route("/config")
 @app.route("/config.html")
 @app.route("/index.html")
-@app.route("/app/com.qweather.widget/config")
-@app.route("/app/com.qweather.widget/config.html")
-@app.route("/app/com.qweather.widget/index.html")
+@app.route("/app/qweather/config")
+@app.route("/app/qweather/config.html")
+@app.route("/app/qweather/index.html")
 def config_page():
     return _settings_page_response()
 
@@ -781,6 +783,31 @@ def weather():
         return jsonify(resp.json())
     except requests.RequestException as e:
         return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/check_update")
+def check_update():
+    """由 NAS 后端请求 GitHub Releases（设置中心在网关 iframe 内只做同源
+    请求，避免网关 CSP 拦截浏览器直连 api.github.com）。"""
+    try:
+        resp = requests.get(
+            RELEASE_API,
+            timeout=TIMEOUT,
+            headers={"Accept": "application/vnd.github+json",
+                     "User-Agent": "QTWeather-" + APP_VERSION})
+        resp.raise_for_status()
+        d = resp.json()
+        return jsonify({
+            "ok": True,
+            "current": APP_VERSION,
+            "tag": str(d.get("tag_name") or d.get("name") or "").lstrip("vV").strip(),
+            "name": d.get("name") or "",
+            "body": d.get("body") or "",
+            "url": d.get("html_url") or
+                   "https://github.com/MisiteQ/QTWeather/releases",
+        })
+    except requests.RequestException as e:
+        return jsonify({"ok": False, "error": str(e)}), 502
 
 
 @app.route("/health")

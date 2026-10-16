@@ -309,7 +309,7 @@
         <img class="about-logo" id="about-logo" src="/qweather-icon.png" alt="时钟天气 QTWeather">
         <div>
           <div class="about-name">时钟天气 <span class="about-en">QTWeather</span></div>
-          <div class="about-ver">当前版本 <b id="app-version">v3.0.0</b></div>
+          <div class="about-ver">当前版本 <b id="app-version">v3.0.2</b></div>
         </div>
       </div>
       <div class="about-line">作者：Misite齊 · <a href="https://github.com/MisiteQ" target="_blank" rel="noopener">github.com/MisiteQ</a></div>
@@ -368,17 +368,17 @@ var API_PRESETS = (function(){
   var p = location.pathname;
   var base = /\/$/.test(p) ? p : p.replace(/[^/]*$/, "");
   return [
-    { get: "/qweather-settings", post: "/qweather-api/settings", font: "/qweather-api/font", cities: "/qweather-cities.json", icon: "/qweather-icon.png" },
-    { get: base + "api/settings", post: base + "api/settings", font: base + "api/font", cities: base + "cities_cn.json", icon: base + "icon.png" },
-    { get: "/api/settings", post: "/api/settings", font: "/api/font", cities: "/cities_cn.json", icon: "/icon.png" }
+    { get: "/qweather-settings", post: "/qweather-api/settings", font: "/qweather-api/font", cities: "/qweather-cities.json", icon: "/qweather-icon.png",
+      weather: "/qweather-api/weather", geocode: "/qweather-api/geocode", update: "/qweather-api/check_update" },
+      { get: base + "api/settings", post: base + "api/settings", font: base + "api/font", cities: base + "cities_cn.json", icon: base + "icon.png",
+        weather: base + "api/weather", geocode: base + "api/geocode", update: base + "api/check_update" },
+      { get: "/api/settings", post: "/api/settings", font: "/api/font", cities: "/cities_cn.json", icon: "/icon.png",
+        weather: "/api/weather", geocode: "/api/geocode", update: "/api/check_update" }
   ];
 })();
 var api = API_PRESETS[0];
-var APP_VERSION = "3.0.0";
+var APP_VERSION = "3.0.2";
 var REPO_URL = "https://github.com/MisiteQ/QTWeather";
-var RELEASE_API = "https://api.github.com/repos/MisiteQ/QTWeather/releases/latest";
-var DIRECT_WEATHER = "https://api.open-meteo.com/v1/forecast";
-var DIRECT_GEOCODE = "https://geocoding-api.open-meteo.com/v1/search";
 var CN_CITIES_CACHE_KEY = "qweather_widget_cities_v1";
 
 function probeApiBase() {
@@ -422,18 +422,21 @@ function checkUpdate(manual) {
   if (state) { state.className = "update-state"; state.textContent = "正在检查更新…"; }
   if (box) { box.className = "about-new"; box.innerHTML = ""; }
   if (btn) btn.disabled = true;
-  fetch(RELEASE_API + "?ts=" + Date.now(), { cache: "no-store" })
+  // 由 NAS 后端代理请求 GitHub（网关 iframe 内同源调用，不受 CSP 限制）
+  fetch(api.update + "?ts=" + Date.now(), { cache: "no-store", credentials: "same-origin" })
     .then(function (r) {
       if (!r.ok) throw new Error("HTTP " + r.status);
       return r.json();
     })
     .then(function (d) {
-      var tag = String(d.tag_name || d.name || "").replace(/^[vV]/, "").trim();
+      if (!d || d.ok !== true) throw new Error((d && d.error) || "检查失败");
+      var ver = d.current || APP_VERSION;
+      var tag = String(d.tag || "").replace(/^[vV]/, "").trim();
       if (!tag) {
         if (state) { state.className = "update-state"; state.textContent = "暂未发布任何版本"; }
         return;
       }
-      if (cmpVer(tag, APP_VERSION) > 0) {
+      if (cmpVer(tag, ver) > 0) {
         if (state) { state.className = "update-state"; state.textContent = "发现新版本 v" + tag; }
         if (box) {
           var notes = (d.body || "").trim();
@@ -442,19 +445,19 @@ function checkUpdate(manual) {
           var esc = notes.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
                          .replace(/\r\n|\n/g, "<br>");
           box.innerHTML = "<b>v" + tag + "</b>" + (esc ? "<br>" + esc : "") +
-            '<br><a href="' + (d.html_url || REPO_URL + "/releases") +
+            '<br><a href="' + (d.url || REPO_URL + "/releases") +
             '" target="_blank" rel="noopener">前往 GitHub 下载更新（不会自动安装）</a>';
           box.className = "about-new show";
         }
       } else {
         if (state) { state.className = "update-state ok";
-          state.textContent = "已是最新版本 v" + APP_VERSION +
-            (tag !== APP_VERSION ? "（最新发布 v" + tag + "）" : ""); }
+          state.textContent = "已是最新版本 v" + ver +
+            (tag !== ver ? "（最新发布 v" + tag + "）" : ""); }
       }
     })
     .catch(function () {
       if (state) { state.className = "update-state err";
-        state.textContent = manual ? "检查失败：无法连接 GitHub，请稍后重试"
+        state.textContent = manual ? "检查失败：NAS 暂时无法连接 GitHub，请稍后重试"
                                    : "自动检查未完成（网络不可达）"; }
     })
     .then(function () { if (btn) btn.disabled = false; });
@@ -592,7 +595,9 @@ function searchCn(q){
 }
 
 function searchOm(name){
-  return fetch(DIRECT_GEOCODE + "?name=" + encodeURIComponent(name) + "&count=10&language=zh&format=json")
+  // 经 NAS 后端代理 Open-Meteo 地理编码（同源请求，网关 iframe 下可用）
+  return fetch(api.geocode + "?name=" + encodeURIComponent(name),
+               { credentials: "same-origin" })
     .then(function(r){ return r.json(); })
     .then(function(data){
       return (data.results || []).map(function(it){
@@ -802,13 +807,12 @@ function renderPreviewWeather(data){
 
 function fetchPreviewWeather(){
   if (!form.location) return Promise.resolve();
+  // 经 NAS 后端代理取天气（同源请求，网关 iframe 下可用；后端返回字段为
+  // 渲染所需字段的超集，多余字段忽略即可）
   var p = new URLSearchParams({
-    latitude: form.location.latitude, longitude: form.location.longitude,
-    current: "temperature_2m,apparent_temperature,relative_humidity_2m,is_day,weather_code,wind_speed_10m,pressure_msl",
-    daily: "weather_code,temperature_2m_max,temperature_2m_min",
-    timezone: "auto", forecast_days: "5"
+    lat: form.location.latitude, lon: form.location.longitude
   });
-  return fetch(DIRECT_WEATHER + "?" + p.toString())
+  return fetch(api.weather + "?" + p.toString(), { credentials: "same-origin" })
     .then(function(r){ return r.json(); })
     .then(function(data){
       if (data.error) { els.pvDesc.textContent = data.error; return; }

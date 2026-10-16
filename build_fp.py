@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
 """
 打包 com.qweather.widget fpk（与服务端解包器兼容的格式）
-用法: python build_fp.py
+用法:
+  python build_fp.py            # 平台取 fpk/manifest 的 platform 字段
+  python build_fp.py x86        # 强制打 x86 包
+  python build_fp.py arm        # 强制打 arm 包
+  python build_fp.py all        # 依次打 x86 / arm 两个包（不改动源 manifest）
 产物: com.qweather.widget-<version>-<platform>.fpk
-  platform 取自 fpk/manifest 的 platform 字段（x86 / arm）
 """
 import io
 import os
+import sys
 import tarfile
 import hashlib
 import gzip
@@ -99,13 +103,15 @@ def add_regular(tar, arc, data, mode=0o644):
     tar.addfile(ti, io.BytesIO(data))
 
 
-def main():
+def build_one(platform_override=None):
     app_tgz = build_app_tgz()
     checksum = hashlib.md5(app_tgz).hexdigest()
     fields = parse_source_manifest(os.path.join(SRC, 'manifest'))
     fields_dict = dict(fields)
     version = fields_dict['version']
-    platform = fields_dict.get('platform', 'x86')
+    platform = platform_override or fields_dict.get('platform', 'x86')
+    if platform_override:
+        fields = [(k, platform if k == 'platform' else v) for k, v in fields]
     manifest = build_manifest(fields, checksum)
 
     def read(rel):
@@ -129,14 +135,37 @@ def main():
     print(f'built: {out_path} ({os.path.getsize(out_path)} bytes)')
     print(f'app.tgz md5: {checksum}')
 
-    # 自检：重新解开确认目录条目
+    # 自检：重新解开确认目录条目、manifest 平台字段
     with tarfile.open(out_path, 'r:gz') as t:
         inner = t.extractfile('app.tgz').read()
+        mf = t.extractfile('manifest').read().decode('utf-8')
     with tarfile.open(fileobj=io.BytesIO(inner)) as t:
         bad = [m.name for m in t.getmembers()
                if m.isdir() and m.type != tarfile.DIRTYPE]
         assert not bad, bad
-    print('self-check OK')
+    mf_fields = {}
+    for line in mf.replace('\r\n', '\n').split('\n'):
+        if '=' in line:
+            k, v = line.split('=', 1)
+            mf_fields[k.strip()] = v.strip()
+    assert mf_fields.get('version') == version, mf_fields.get('version')
+    assert mf_fields.get('platform') == platform, mf_fields.get('platform')
+    assert mf_fields.get('checksum') == checksum
+    print('self-check OK (%s)' % platform)
+    return out_path
+
+
+def main():
+    arg = sys.argv[1].strip().lower() if len(sys.argv) > 1 else ''
+    if arg in ('', 'all'):
+        plats = [None] if not arg else ['x86', 'arm']
+    elif arg in ('x86', 'arm'):
+        plats = [arg]
+    else:
+        print('usage: python build_fp.py [x86|arm|all]')
+        sys.exit(2)
+    for p in plats:
+        build_one(p)
 
 
 if __name__ == '__main__':
