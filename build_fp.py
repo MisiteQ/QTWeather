@@ -131,6 +131,13 @@ def build_one(platform_override=None):
         wpath = os.path.join(SRC, 'wizard')
         for name in sorted(os.listdir(wpath)):
             add_regular(tar, f'wizard/{name}', read(f'wizard/{name}'), 0o755)
+        # ui/ 目录（含 config、images/）需置于 fpk 根目录，应用中心才能读取
+        upath = os.path.join(APP_DIR, 'ui')
+        for dirpath, _dirnames, filenames in os.walk(upath):
+            for name in sorted(filenames):
+                ap = os.path.join(dirpath, name)
+                rel = os.path.relpath(ap, APP_DIR).replace(os.sep, '/')
+                add_regular(tar, rel, open(ap, 'rb').read())
 
     print(f'built: {out_path} ({os.path.getsize(out_path)} bytes)')
     print(f'app.tgz md5: {checksum}')
