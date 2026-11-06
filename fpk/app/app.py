@@ -1,5 +1,5 @@
 """
-时钟天气 QTWeather（com.qweather.widget）- Flask 后端服务（FPK 版本）v3.0.2
+时钟天气 QTWeather（com.qweather.widget）- Flask 后端服务（FPK 版本）v3.0.3
 使用 Open-Meteo 免费天气 API（无需 API Key）
 
 注入机制（v2.1.0，零 /usr/trim/www 写入）：
@@ -24,12 +24,12 @@
     5. 永远不写 /usr/trim/www 下任何文件。
 """
 import os
-import re
 import sys
 import json
 import time
+import zlib
+import random
 import struct
-import shutil
 import zipfile
 import subprocess
 import threading
@@ -73,7 +73,7 @@ TIMEOUT = 10
 
 # 版本更新检查（只检查，不自动下载/安装）
 RELEASE_API = "https://api.github.com/repos/MisiteQ/QTWeather/releases/latest"
-APP_VERSION = "3.0.2"
+APP_VERSION = "3.0.3"
 
 # ===== 飞牛路径 =====
 FNOS_WWW_INDEX = "/usr/trim/www/index.html"
@@ -168,14 +168,41 @@ location = /qweather-icon.png {
     default_type image/png;
     add_header cache-control public;
 }
-# 应用后端 API 统一前缀（设置中心经同源 https://<host>/qweather-api/ 调用，
-# 同时覆盖字体上传 25MB、设置写盘、天气/地理编码代理、GitHub 检查更新）：
+# 应用后端 API 白名单反代（设置中心经同源 https://<host>/qweather-api/ 调用）：
 # 设置中心在 fnOS 网关 iframe（/app/<name>/）内运行，浏览器直连第三方
 # 站点可能被网关 CSP 拦截，故天气、地理编码、更新检查一律由 NAS 后端
-# 代理发起，前端只做同源请求。^~ 前缀与上面的精确匹配 location 互不影响。
-location ^~ /qweather-api/ {
+# 代理发起，前端只做同源请求。
+# 安全：只反代设置中心实际调用的五个端点（精确匹配 location）；inject /
+# uninstall / diagnose 等管理端点能以 root 重写系统 ng.conf.zip 并重启
+# nginx，绝不经 nginx 暴露给局域网——仅 127.0.0.1:5698 与 unix socket 可达。
+location = /qweather-api/settings {
+    proxy_pass http://127.0.0.1:%s/api/settings;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    add_header cache-control no-store;
+}
+# 字体上传（multipart，最大 25MB，与后端 MAX_CONTENT_LENGTH 一致）
+location = /qweather-api/font {
     client_max_body_size 25m;
-    proxy_pass http://127.0.0.1:%s/api/;
+    proxy_pass http://127.0.0.1:%s/api/font;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    add_header cache-control no-store;
+}
+location = /qweather-api/weather {
+    proxy_pass http://127.0.0.1:%s/api/weather;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    add_header cache-control no-store;
+}
+location = /qweather-api/geocode {
+    proxy_pass http://127.0.0.1:%s/api/geocode;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    add_header cache-control no-store;
+}
+location = /qweather-api/check_update {
+    proxy_pass http://127.0.0.1:%s/api/check_update;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     add_header cache-control no-store;
@@ -191,27 +218,18 @@ location = /qweather-settings {
     add_header cache-control no-store;
 }
 """ % (DESKTOP_INDEX, WIDGET_JS_DIRECT, CITIES_JSON_DIRECT,
-       SETTINGS_HTML_DIRECT, ICON_DIRECT, SERVICE_PORT,
+       SETTINGS_HTML_DIRECT, ICON_DIRECT,
+       SERVICE_PORT, SERVICE_PORT, SERVICE_PORT, SERVICE_PORT, SERVICE_PORT,
        SETTINGS_FILE)
 
 WIDGET_SCRIPT_TAG = '<script src="/qweather-widget.js"></script>'
 
 
 # ===== CORS =====
-# widget.js 注入在桌面页（origin: https://<nas-host>），调用应用子域
-# API（https://com~qweather-widget.<nas-host>/api/...）属跨域请求。
-# 需要携带 session cookie（凭据）才能通过 fnOS 网关认证，因此 CORS
-# 必须回显具体 Origin 并允许凭据——不能用通配 *。
-@app.after_request
-def add_cors_headers(response):
-    origin = request.headers.get("Origin", "")
-    if origin:
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Vary"] = "Origin"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    return response
+# v3.0.2 起不再做任何跨域放行：widget.js（注入桌面页）与设置中心
+# （网关 iframe / nginx 同源 alias）的请求全部同源，浏览器不会触发预检。
+# 此前「回显任意 Origin + Allow-Credentials」的遗留配置属于安全隐患
+# （任意网页可凭据跨域调用本应用 API），已整体移除。
 
 
 def _settings_page_response():
@@ -259,9 +277,10 @@ def widget_js():
 
 # ===== 基础工具 =====
 def _run_cmd(cmd, timeout=30):
+    """cmd 为参数列表，不经 shell（避免路径拼接带来的注入面）。"""
     try:
         result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+            cmd, capture_output=True, text=True, timeout=timeout)
         return result.returncode == 0, (result.stdout or "") + (result.stderr or "")
     except Exception as e:
         return False, str(e)
@@ -290,7 +309,8 @@ def _write_file_direct(path, content, mode=0o644):
 # ===== ZipCrypto：用已知内部密钥加密新条目 =====
 def _load_zip_keys():
     try:
-        data = json.loads(open(_KEYS_FILE, "r", encoding="utf-8").read())
+        with open(_KEYS_FILE, "r", encoding="utf-8") as f:
+            data = json.loads(f.read())
         k0, k1, k2 = int(data["k0"]), int(data["k1"]), int(data["k2"])
         if not (0 <= k0 < 2**32 and 0 <= k1 < 2**32 and 0 <= k2 < 2**32):
             return None
@@ -316,7 +336,6 @@ def _zc_stream(keys):
 
 
 def _zipcrypto_encrypt(plaintext, keys, check_byte):
-    import random
     ks = list(keys)
     out = bytearray()
     # 12 字节头，最后一字节为校验字节：
@@ -353,16 +372,22 @@ for _i in range(256):
     _CRC_TABLE.append(_c & 0xFFFFFFFF)
 
 
+# 系统恢复包 ng.conf.zip 是全局唯一文件，「读全量 → 重写 → os.replace」
+# 不是原子组合：gunicorn 多线程（维护线程 + /api/inject + 启动钩子）并发
+# 重写会互相踩踏写出损坏的 zip。所有 zip 读写一律持锁串行执行。
+_zip_lock = threading.Lock()
+
+
 def _zip_contains(zip_path, arcname):
-    try:
-        with zipfile.ZipFile(zip_path) as z:
-            return arcname in z.namelist()
-    except Exception:
-        return False
+    with _zip_lock:
+        try:
+            with zipfile.ZipFile(zip_path) as z:
+                return arcname in z.namelist()
+        except Exception:
+            return False
 
 
 def _crc32_bytes(b):
-    import zlib
     return zlib.crc32(b) & 0xFFFFFFFF
 
 
@@ -493,16 +518,18 @@ def _write_zip(zip_path, entries, new_entry=None):
 
 def _add_encrypted_entry(zip_path, arcname, plaintext_bytes, keys):
     """把新条目以 ZipCrypto + STORED 方式追加进 zip"""
-    entries = _read_raw_entries(zip_path)
-    _write_zip(zip_path, entries,
-               new_entry=(arcname.encode("utf-8"), plaintext_bytes, keys))
+    with _zip_lock:
+        entries = _read_raw_entries(zip_path)
+        _write_zip(zip_path, entries,
+                   new_entry=(arcname.encode("utf-8"), plaintext_bytes, keys))
     return True
 
 
 def _remove_entry(zip_path, arcname):
-    entries = [e for e in _read_raw_entries(zip_path)
-               if e[0].filename != arcname]
-    _write_zip(zip_path, entries)
+    with _zip_lock:
+        entries = [e for e in _read_raw_entries(zip_path)
+                   if e[0].filename != arcname]
+        _write_zip(zip_path, entries)
     return True
 
 
@@ -510,18 +537,19 @@ def _read_encrypted_entry(zip_path, arcname, keys):
     """解密指定条目并返回明文（不含 12 字节加密头）；不存在返回 None，
     解密结果 CRC 不符返回 False（视为损坏条目）"""
     try:
-        with zipfile.ZipFile(zip_path) as z:
-            if arcname not in z.namelist():
-                return None
-            info = z.getinfo(arcname)
-        with open(zip_path, "rb") as fh:
-            fh.seek(info.header_offset)
-            hdr = fh.read(30)
-            if hdr[:4] != b"PK\x03\x04":
-                return False
-            nlen, xlen = struct.unpack("<HH", hdr[26:30])
-            fh.read(nlen + xlen)
-            raw = fh.read(info.compress_size)
+        with _zip_lock:
+            with zipfile.ZipFile(zip_path) as z:
+                if arcname not in z.namelist():
+                    return None
+                info = z.getinfo(arcname)
+            with open(zip_path, "rb") as fh:
+                fh.seek(info.header_offset)
+                hdr = fh.read(30)
+                if hdr[:4] != b"PK\x03\x04":
+                    return False
+                nlen, xlen = struct.unpack("<HH", hdr[26:30])
+                fh.read(nlen + xlen)
+                raw = fh.read(info.compress_size)
         dec = _zipcrypto_decrypt(raw, keys)
         body = dec[12:]
         if _crc32_bytes(body) != info.CRC:
@@ -549,7 +577,6 @@ def _build_desktop_index():
             pass
     if not _write_file_direct(DESKTOP_INDEX, injected):
         return False, "注入页写入失败"
-    import zlib
     _write_file_direct(PRISTINE_HASH_FILE,
                        "%08x" % (zlib.crc32(pristine.encode("utf-8")) & 0xFFFFFFFF))
     return True, "注入页已生成"
@@ -573,15 +600,20 @@ def _desktop_index_ok():
 def _nginx_reload():
     # 注意：reload 会触发 trim_recover 恢复 conf.d，但我们的配置同时
     # 存在于 ng.conf.zip，所以恢复后配置仍然在。
-    return _run_cmd("systemctl reload trim_nginx", timeout=30)
+    return _run_cmd(["systemctl", "reload", "trim_nginx"], timeout=30)
 
 
 def _nginx_restart():
-    return _run_cmd("systemctl restart trim_nginx", timeout=60)
+    return _run_cmd(["systemctl", "restart", "trim_nginx"], timeout=60)
 
 
 # ===== 完整安装/修复 =====
 _last_restart = 0.0
+# conf.d 修复失败连续计数：reload/restart 后内容仍不符时不再无限重试
+# （每次 restart 都会断开飞牛桌面页 WebSocket），连续失败达到上限后停止
+# 自动修复，仅在用户手动触发 /api/inject（allow_restart 重置计数）时重试。
+_confd_repair_attempts = 0
+_CONFD_REPAIR_MAX = 3
 
 
 def _ensure_settings_file():
@@ -598,7 +630,7 @@ def _ensure_settings_file():
 
 
 def _ensure_installed(allow_restart=True):
-    global _last_restart
+    global _last_restart, _confd_repair_attempts
     detail = []
 
     # 0. 默认 settings.json（首次启动）
@@ -632,8 +664,16 @@ def _ensure_installed(allow_restart=True):
     #    实测单独一次 reload 即可既恢复文件、又让 nginx 载入新配置。
     #    reload 之后内容仍不符，才退回 restart 兜底。
     confd_current = _read_file(QW_NGINX_CONF)
-    if confd_current != QW_NGINX_CONF_CONTENT:
-        if allow_restart and time.time() - _last_restart > 180:
+    if confd_current == QW_NGINX_CONF_CONTENT:
+        # 内容已一致：重置连续失败计数
+        _confd_repair_attempts = 0
+    elif allow_restart and time.time() - _last_restart > 180:
+        if _confd_repair_attempts >= _CONFD_REPAIR_MAX:
+            # 已连续失败 N 次（可能是 trim_recover 损坏等深层问题），
+            # 停止无限 restart（每次都会断桌面 WebSocket），等待手动介入
+            detail.append("confd-repair-suspended")
+        else:
+            _confd_repair_attempts += 1
             _nginx_reload()
             time.sleep(2)
             if _read_file(QW_NGINX_CONF) != QW_NGINX_CONF_CONTENT:
@@ -642,9 +682,10 @@ def _ensure_installed(allow_restart=True):
                 detail.append("nginx-restart")
             else:
                 detail.append("nginx-reload")
+                _confd_repair_attempts = 0
             _last_restart = time.time()
-        else:
-            detail.append("restart-rate-limited")
+    else:
+        detail.append("restart-rate-limited")
 
     return True, ",".join(detail) or "already-ok"
 
@@ -657,10 +698,10 @@ def _do_uninstall():
     except Exception as e:
         return False, f"ng.conf.zip 清理失败: {e}"
 
-    _run_cmd(f"rm -f {QW_NGINX_CONF}")
+    _run_cmd(["rm", "-f", QW_NGINX_CONF])
     _nginx_restart()
     time.sleep(3)
-    _run_cmd(f"rm -rf {DESKTOP_DIR}")
+    _run_cmd(["rm", "-rf", DESKTOP_DIR])
     return True, "已卸载注入"
 
 
@@ -715,6 +756,9 @@ def diagnose():
 
 @app.route("/api/inject", methods=["POST"])
 def inject():
+    # 手动触发视为新的修复尝试：重置 conf.d 连续失败计数
+    global _confd_repair_attempts
+    _confd_repair_attempts = 0
     ok, msg = _ensure_installed(allow_restart=True)
     if not ok:
         return jsonify({"status": "error", "message": msg}), 500
@@ -768,13 +812,13 @@ def weather():
             params={
                 "latitude": lat,
                 "longitude": lon,
+                # 与 widget.js 直连请求保持一致：只取前端实际渲染的字段，
+                # 不拉取 sunrise/sunset/wind_direction 等无用数据
                 "current": ["temperature_2m", "relative_humidity_2m",
                             "apparent_temperature", "is_day", "weather_code",
-                            "wind_speed_10m", "wind_direction_10m",
-                            "pressure_msl"],
+                            "wind_speed_10m", "pressure_msl"],
                 "daily": ["weather_code", "temperature_2m_max",
-                          "temperature_2m_min", "sunrise", "sunset",
-                          "precipitation_probability_max"],
+                          "temperature_2m_min"],
                 "timezone": "auto",
                 "forecast_days": 5,
             },
@@ -816,6 +860,49 @@ def health():
 
 
 # ===== 小组件设置持久化（存 NAS，跨浏览器/跨设备共享） =====
+# settings.json 字段白名单：设置写入来自局域网同源请求，拒绝任意键全量
+# 落盘，防止意外/恶意字段污染（widget.js 与 settings.html 均只写这些键）。
+SETTINGS_ALLOWED_KEYS = {
+    "schemaV", "location", "opacity", "textColor", "iconColor", "pinColor",
+    "fontScale", "fontName", "fontExt", "fontV",
+    "showClock", "showWeather", "refreshInterval",
+    "position", "visible", "width", "height", "widthRatio", "heightRatio",
+}
+
+# save_settings 的 read-modify-write 必须整个串行化：widget.js（拖动/缩放，
+# 只发布局字段）与 settings.html（外观/城市，只发 MANAGED_KEYS）并发 POST 会
+# 同时读到同一份旧 existing 快照，各自 update 后写回覆盖对方的改动。
+# 本锁在 Python 单进程内兜住同一 gunicorn worker 的多线程；跨 worker 的场景
+# 通过 widget.js 侧字段白名单彻底消除重叠 key，正常负载下无需额外文件锁。
+_settings_lock = threading.Lock()
+
+
+def _sanitize_settings(data):
+    """过滤未知字段并做最小类型校验；非法值回退默认。"""
+    if not isinstance(data, dict):
+        return {}
+    out = {k: data[k] for k in SETTINGS_ALLOWED_KEYS if k in data}
+
+    loc = out.get("location")
+    if "location" in out and (
+            not isinstance(loc, dict)
+            or not isinstance(loc.get("latitude"), (int, float))
+            or not isinstance(loc.get("longitude"), (int, float))):
+        out["location"] = {"name": "北京", "latitude": 39.9042,
+                           "longitude": 116.4074, "country": "中国"}
+
+    pos = out.get("position")
+    if "position" in out and pos is not None and not isinstance(pos, dict):
+        out["position"] = None
+
+    # 两个显示模块不能同时关闭（服务端兜底，与前端校验一致）
+    if out.get("showClock") is False and out.get("showWeather") is False:
+        out["showClock"] = True
+        out["showWeather"] = True
+
+    return out
+
+
 @app.route("/api/settings", methods=["GET"])
 def get_settings():
     try:
@@ -832,20 +919,49 @@ def save_settings():
     if request.method == "OPTIONS":
         return jsonify({"ok": True})
     try:
-        data = request.get_json(force=True, silent=True)
-        if data is None:
-            data = {}
-        os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
-        tmp = SETTINGS_FILE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, SETTINGS_FILE)
-        try:
-            os.chmod(SETTINGS_FILE, 0o644)
-        except Exception:
-            pass
+        data = _sanitize_settings(request.get_json(force=True, silent=True))
+        if not data:
+            return jsonify({"ok": False, "error": "无效的设置数据"}), 400
+
+        # read-modify-write 整个序列必须持锁串行化，否则两个并发请求（例如
+        # widget 拖动保存 position + settings.html 改 opacity）会读到同一份
+        # 旧 existing 快照，各自 update 后写回互相覆盖对方的新值。
+        with _settings_lock:
+            # 合并写入：请求里未携带的字段保留 NAS 现值。
+            # 桌面卡片的位置/尺寸由拖动、缩放实时写盘；设置中心若整包回写
+            # 打开页面时的旧快照，点一次保存就会把卡片拽回旧位置/旧尺寸。
+            existing = {}
+            file_exists = os.path.exists(SETTINGS_FILE)
+            if file_exists:
+                try:
+                    with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                        raw = f.read()
+                    if raw.strip():
+                        loaded = json.loads(raw)
+                        if isinstance(loaded, dict):
+                            existing = loaded
+                except Exception:
+                    # settings.json 存在但损坏：拒绝写回，避免用本次请求的
+                    # 部分字段（widget 只发布局 / settings.html 只发外观）
+                    # 覆盖掉损坏文件里其他完好的字段，造成静默数据丢失。
+                    return jsonify({
+                        "ok": False,
+                        "error": "设置文件已损坏，请手动修复后再保存",
+                    }), 500
+
+            existing.update(data)
+            merged = existing
+            os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+            tmp = SETTINGS_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(merged, f, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, SETTINGS_FILE)
+            try:
+                os.chmod(SETTINGS_FILE, 0o644)
+            except Exception:
+                pass
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500

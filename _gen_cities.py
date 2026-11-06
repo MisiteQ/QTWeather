@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """生成中国行政区划坐标库 cities_cn.json（省/市/县三级，来源：阿里 DataV GeoAtlas）"""
 import json
+import os
 import urllib.request
 
 URL = "https://datav.aliyun.com/areas_v3/bound/all.json"
-OUT = r"d:\CODE\QWeather\fpk\app\static\cities_cn.json"
+# 输出到本仓库 fpk/app/static/cities_cn.json（跟随脚本所在目录，勿写死盘符）
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                   "fpk", "app", "static", "cities_cn.json")
 
 req = urllib.request.Request(URL, headers={"User-Agent": "QWeather-Builder"})
 with urllib.request.urlopen(req, timeout=60) as r:

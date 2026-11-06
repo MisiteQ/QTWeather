@@ -278,15 +278,18 @@
     // 层级策略（根 z-index:10，位于桌面宿主内部）：
     //   壁纸 0 ＜ 桌面图标(auto 非定位) ＜ 小组件 10 ＜ 原生窗口 10010 ＜
     //   右键菜单 10022 ＜ 全屏界面 1000001
+    // 设计语言：大圆角玻璃卡片 + 品牌青绿→天蓝点缀；透明度 / 文字 / 图标 /
+    // 定位配色仍全部由 CSS 变量驱动（applyOpacity / applyTheme）。
+    // 中性灰半透明底（rgba(128,128,128,…)) 用于胶囊与软底块，深浅文字色都可读。
     var SCOPED_CSS = [
         "#qweather-root{position:absolute;z-index:10;font-family:'QwUserFont',-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;color:var(--qw-text,#1a1a2e);pointer-events:none;user-select:none;}",
         "#qweather-root *{margin:0;padding:0;box-sizing:border-box;}",
 
         // 卡片底色 / 模糊 / 投影全部走 CSS 变量，由 applyOpacity() 统一驱动：
         // 三者同步淡出，滑到 0% 时背景彻底透明且不留磨砂残影——而文字、
-        // 图标、分隔线之外的内容始终完全不透明（它们不吃这些变量）。
-        "#qweather-root .qw-card{pointer-events:auto;width:340px;min-width:240px;min-height:120px;border-radius:20px;background:rgba(255,255,255,var(--qw-bg,0.85));backdrop-filter:blur(var(--qw-blur,20px));-webkit-backdrop-filter:blur(var(--qw-blur,20px));box-shadow:0 8px 32px rgba(0,0,0,var(--qw-shadow,0.2));padding:18px 22px 16px;display:flex;flex-direction:column;transition:box-shadow 0.3s ease,transform 0.1s ease;position:relative;overflow:hidden;cursor:grab;}",
-        "#qweather-root .qw-card:hover{box-shadow:0 12px 40px rgba(0,0,0,calc(var(--qw-shadow,0.2) * 1.5));}",
+        // 图标、胶囊之外的内容始终完全不透明（它们不吃这些变量）。
+        "#qweather-root .qw-card{pointer-events:auto;width:340px;min-width:240px;min-height:120px;border-radius:24px;background:linear-gradient(165deg,rgba(255,255,255,calc(var(--qw-bg,0.85) * 1.08)),rgba(255,255,255,var(--qw-bg,0.85)));backdrop-filter:blur(var(--qw-blur,20px)) saturate(1.5);-webkit-backdrop-filter:blur(var(--qw-blur,20px)) saturate(1.5);box-shadow:0 10px 36px rgba(0,0,0,var(--qw-shadow,0.2));padding:18px 24px 14px;display:flex;flex-direction:column;transition:box-shadow 0.3s ease,transform 0.1s ease;position:relative;overflow:hidden;cursor:grab;}",
+        "#qweather-root .qw-card:hover{box-shadow:0 16px 48px rgba(0,0,0,calc(var(--qw-shadow,0.2) * 1.6));}",
         "#qweather-root .qw-card:active{cursor:grabbing;}",
 
         // ===== 模块开关：时间日期 / 天气预报可独立显隐（在独立设置窗口中配置） =====
@@ -295,48 +298,55 @@
         "#qweather-root .qw-card.qw-no-weather .qw-clock{margin-top:0;}",
         "#qweather-root .qw-card.qw-no-clock .qw-wx{margin-top:0;padding-top:0;border-top:none;}",
         "#qweather-root .qw-card.qw-compact .qw-clock-lunar{display:none;}",
-        "#qweather-root .qw-card.qw-compact .qw-forecast-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(54px,1fr));gap:6px;}",
+        "#qweather-root .qw-card.qw-compact .qw-forecast-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(54px,1fr));gap:5px;}",
         "#qweather-root .qw-card.qw-tiny .qw-clock-lunar,#qweather-root .qw-card.qw-tiny .qw-wx-sub,#qweather-root .qw-card.qw-tiny .qw-wx-text,#qweather-root .qw-card.qw-tiny .qw-forecast{display:none;}",
-        "#qweather-root .qw-card.qw-tiny .qw-clock-time{font-size:calc(38px * var(--qw-fs,1));}",
+        "#qweather-root .qw-card.qw-tiny .qw-clock-time{font-size:calc(40px * var(--qw-fs,1));}",
         "#qweather-root .qw-card.qw-tiny .qw-wx-temp{font-size:calc(34px * var(--qw-fs,1));}",
 
+        // ===== 顶部：定位针 + 城市 =====
         "#qweather-root .qw-header{display:flex;align-items:center;justify-content:space-between;gap:8px;}",
-        "#qweather-root .qw-location-info{display:flex;align-items:center;gap:6px;flex:1;min-width:0;}",
-        "#qweather-root .qw-location-icon{width:18px;height:18px;flex-shrink:0;color:var(--qw-pin,#e74c3c);}",
-        "#qweather-root .qw-location-name{font-size:calc(16px * var(--qw-fs,1));font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+        "#qweather-root .qw-location-info{display:flex;align-items:center;gap:7px;flex:1;min-width:0;}",
+        "#qweather-root .qw-location-icon{width:17px;height:17px;flex-shrink:0;color:var(--qw-pin,#e74c3c);filter:drop-shadow(0 1px 2px rgba(0,0,0,calc(var(--qw-shadow,0.2) * 1.2)));}",
+        "#qweather-root .qw-location-name{font-size:calc(16px * var(--qw-fs,1));font-weight:700;letter-spacing:0.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
 
-        // ===== 时钟 + 农历（时钟卡片风格，移植自 fnmonitor） =====
-        "#qweather-root .qw-clock{margin-top:14px;}",
-        "#qweather-root .qw-clock-time{display:flex;align-items:flex-end;gap:6px;font-size:calc(52px * var(--qw-fs,1));font-weight:200;line-height:1;letter-spacing:-2px;}",
-        "#qweather-root .qw-clock-time .qw-sec{font-size:calc(16px * var(--qw-fs,1));font-weight:500;opacity:0.6;letter-spacing:0;margin-bottom:7px;}",
-        "#qweather-root .qw-clock-date{margin-top:10px;font-size:calc(14px * var(--qw-fs,1));font-weight:600;}",
-        "#qweather-root .qw-clock-lunar{margin-top:2px;font-size:calc(12px * var(--qw-fs,1));opacity:0.72;}",
+        // ===== 时钟：超大细体时间 + 定位色秒针 + 农历胶囊 =====
+        "#qweather-root .qw-clock{margin-top:12px;}",
+        "#qweather-root .qw-clock-time{display:flex;align-items:flex-end;gap:8px;font-size:calc(56px * var(--qw-fs,1));font-weight:200;line-height:1;letter-spacing:-2.5px;font-variant-numeric:tabular-nums;}",
+        "#qweather-root .qw-clock-time .qw-sec{font-size:calc(15px * var(--qw-fs,1));font-weight:600;letter-spacing:0;margin-bottom:8px;color:var(--qw-pin,#e74c3c);}",
+        "#qweather-root .qw-clock-date{margin-top:10px;font-size:calc(14px * var(--qw-fs,1));font-weight:600;letter-spacing:0.2px;}",
+        "#qweather-root .qw-clock-lunar{display:inline-flex;align-items:center;margin-top:6px;font-size:calc(12px * var(--qw-fs,1));opacity:0.82;padding:3px 11px;border-radius:99px;background:rgba(128,128,128,0.12);}",
 
-        // ===== 天气区块（图标 + 温度 + 描述 + 体感/湿度/风速/气压） =====
-        "#qweather-root .qw-wx{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;align-items:center;margin-top:16px;padding-top:14px;border-top:1px solid rgba(0,0,0,calc(var(--qw-shadow,0.2) * 0.4));}",
-        "#qweather-root .qw-wx-ico{grid-row:span 2;width:46px;height:46px;color:var(--qw-icon,#1a1a2e);}",
-        "#qweather-root .qw-wx-ico svg{width:46px;height:46px;stroke-width:1.4;}",
-        "#qweather-root .qw-wx-main{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}",
-        "#qweather-root .qw-wx-temp{font-size:calc(30px * var(--qw-fs,1));font-weight:300;line-height:1;letter-spacing:-1px;}",
-        "#qweather-root .qw-temp-unit{font-size:calc(15px * var(--qw-fs,1));font-weight:300;opacity:0.8;}",
-        "#qweather-root .qw-wx-text{font-size:calc(14px * var(--qw-fs,1));opacity:0.85;}",
-        "#qweather-root .qw-wx-sub{font-size:calc(12px * var(--qw-fs,1));opacity:0.72;}",
+        // ===== 天气区块：大图标 + 温度 + 描述 + 详情胶囊 =====
+        "#qweather-root .qw-wx{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;align-items:center;margin-top:14px;padding-top:13px;border-top:1px solid rgba(128,128,128,calc(var(--qw-shadow,0.2) * 1.6));}",
+        "#qweather-root .qw-wx-ico{grid-row:span 2;width:52px;height:52px;color:var(--qw-icon,#1a1a2e);}",
+        "#qweather-root .qw-wx-ico svg{width:52px;height:52px;stroke-width:1.3;}",
+        "#qweather-root .qw-wx-main{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;}",
+        "#qweather-root .qw-wx-temp{font-size:calc(32px * var(--qw-fs,1));font-weight:300;line-height:1;letter-spacing:-1px;font-variant-numeric:tabular-nums;}",
+        "#qweather-root .qw-temp-unit{font-size:calc(15px * var(--qw-fs,1));font-weight:400;opacity:0.75;}",
+        "#qweather-root .qw-wx-text{font-size:calc(14px * var(--qw-fs,1));opacity:0.9;font-weight:500;}",
+        "#qweather-root .qw-wx-sub{display:flex;flex-wrap:wrap;gap:5px;}",
+        "#qweather-root .qw-chip{font-size:calc(11px * var(--qw-fs,1));opacity:0.85;padding:3px 10px;border-radius:99px;background:rgba(128,128,128,0.12);white-space:nowrap;}",
 
-        "#qweather-root .qw-forecast{margin-bottom:8px;flex:1;}",
-        "#qweather-root .qw-forecast-title{font-size:calc(11px * var(--qw-fs,1));opacity:0.62;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;}",
-        "#qweather-root .qw-forecast-list{display:flex;justify-content:space-between;gap:2px;}",
-        "#qweather-root .qw-forecast-item{flex:1;text-align:center;padding:6px 2px;border-radius:8px;transition:background 0.2s;}",
-        "#qweather-root .qw-forecast-item:hover{background:rgba(0,0,0,0.05);}",
-        "#qweather-root .qw-forecast-day{font-size:calc(10px * var(--qw-fs,1));opacity:0.72;margin-bottom:2px;}",
-        "#qweather-root .qw-forecast-icon{height:20px;margin-bottom:2px;color:var(--qw-icon,#1a1a2e);}",
-        "#qweather-root .qw-forecast-icon svg{width:20px;height:20px;stroke-width:1.6;}",
-        "#qweather-root .qw-forecast-temp{font-size:calc(11px * var(--qw-fs,1));font-weight:600;}",
-        "#qweather-root .qw-forecast-temp .qw-min{opacity:0.65;font-weight:400;}",
+        // ===== 5 天预报：软底圆角块，悬停微浮 =====
+        "#qweather-root .qw-forecast{margin-bottom:6px;flex:1;}",
+        "#qweather-root .qw-forecast-title{font-size:calc(11px * var(--qw-fs,1));opacity:0.6;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;font-weight:600;}",
+        "#qweather-root .qw-forecast-list{display:flex;gap:5px;}",
+        "#qweather-root .qw-forecast-item{flex:1;text-align:center;padding:8px 2px 7px;border-radius:14px;background:rgba(128,128,128,0.08);transition:background 0.2s,transform 0.2s;}",
+        "#qweather-root .qw-forecast-item:hover{background:rgba(128,128,128,0.16);transform:translateY(-1px);}",
+        "#qweather-root .qw-forecast-day{font-size:calc(10px * var(--qw-fs,1));opacity:0.72;margin-bottom:3px;}",
+        "#qweather-root .qw-forecast-icon{height:22px;margin-bottom:3px;color:var(--qw-icon,#1a1a2e);}",
+        "#qweather-root .qw-forecast-icon svg{width:22px;height:22px;stroke-width:1.6;}",
+        "#qweather-root .qw-forecast-temp{font-size:calc(11px * var(--qw-fs,1));font-weight:700;}",
+        "#qweather-root .qw-forecast-temp .qw-min{opacity:0.6;font-weight:400;}",
 
-        "#qweather-root .qw-resize-handle{position:absolute;right:4px;bottom:4px;width:18px;height:18px;cursor:nwse-resize;pointer-events:auto;z-index:5;border-radius:6px;background:rgba(91,110,225,0.04);}",
-        "#qweather-root .qw-resize-handle::after{content:none;display:none;}",
+        // 右下角缩放手柄：悬停卡片时浮现对角三点
+        "#qweather-root .qw-resize-handle{position:absolute;right:2px;bottom:2px;width:22px;height:22px;cursor:nwse-resize;pointer-events:auto;z-index:5;border-radius:8px;}",
+        "#qweather-root .qw-resize-handle::after{content:\"\";position:absolute;right:6px;bottom:6px;width:4px;height:4px;border-radius:50%;background:currentColor;opacity:0;box-shadow:-5px -5px 0 currentColor,-10px -10px 0 currentColor;transition:opacity 0.2s;}",
+        "#qweather-root .qw-card:hover .qw-resize-handle::after{opacity:0.4;}",
 
-        "#qweather-show{position:absolute;right:18px;bottom:18px;z-index:10;width:42px;height:42px;border-radius:50%;border:none;background:rgba(91,110,225,0.92);color:#fff;font-size:20px;cursor:pointer;box-shadow:0 4px 14px rgba(91,110,225,0.4);display:flex;align-items:center;justify-content:center;pointer-events:auto;}"
+        // 恢复按钮：品牌渐变圆角方块
+        "#qweather-show{position:absolute;right:18px;bottom:18px;z-index:10;width:42px;height:42px;border-radius:14px;border:none;background:linear-gradient(135deg,#14b8a6,#0ea5e9);color:#fff;font-size:19px;cursor:pointer;box-shadow:0 6px 18px rgba(14,165,164,0.45);display:flex;align-items:center;justify-content:center;pointer-events:auto;transition:transform 0.15s,box-shadow 0.15s;}",
+        "#qweather-show:hover{transform:scale(1.06);box-shadow:0 8px 22px rgba(14,165,164,0.55);}"
     ].join("\n");
 
     function injectStylesheet() {
@@ -351,6 +361,10 @@
     // 只在两个时机访问服务端：启动时读一次、用户改动后写一次。
     // 不做任何 localStorage 读写——换浏览器/换电脑/清缓存后设置不变。
     var _saveTimer = null;
+    // 本地最后一次 saveSettings 发起的时间戳（拖动/缩放/恢复按钮）。
+    // 4 秒设置轮询可能恰好在写盘完成前读到服务端旧值，导致卡片位置
+    // 回弹/闪烁；保存后 3 秒内的远端位置/尺寸变更一律以本地为准。
+    var _lastLocalSaveTs = 0;
 
     // 启动时从 NAS 读取设置；NAS 无记录或请求失败返回 null（调用方用默认值）。
     function loadSettings() {
@@ -377,16 +391,28 @@
             });
     }
 
+    // ===== widget.js 只发布局相关字段（避免与 settings.html 的 location/opacity 等
+    // 重叠，从根本上消除并发 save_settings 时两个请求 update 同一份 existing 快照
+    // 互相覆盖的竞态）：
+    var WIDGET_MANAGED_KEYS = ["schemaV", "position", "width", "height",
+                               "widthRatio", "heightRatio", "visible"];
+
     // 写回 NAS settings.json。失败必须可见（绝不再静默退回浏览器缓存）。
     function saveSettings() {
+        _lastLocalSaveTs = Date.now();
         if (_saveTimer) clearTimeout(_saveTimer);
         _saveTimer = setTimeout(function () {
             _saveTimer = null;
+            // 只发 widget 独有的布局字段，与 settings.html 的外观字段集合不重叠
+            var payload = {};
+            WIDGET_MANAGED_KEYS.forEach(function (k) {
+                if (k in settings) payload[k] = settings[k];
+            });
             fetch(SETTINGS_POST, {
                 method: "POST",
                 credentials: "same-origin",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(settings)
+                body: JSON.stringify(payload)
             }).then(function (r) {
                 if (!r.ok) throw new Error("HTTP " + r.status);
                 return r.json();
@@ -469,7 +495,7 @@
                 '    <span class="qw-temp-unit">°C</span>' +
                 '    <span class="qw-wx-text" id="qw-weather-desc">加载中...</span>' +
                 '  </div>' +
-                '  <div class="qw-wx-sub" id="qw-wx-sub">体感 --° · 湿度 --% · 风速 -- km/h · 气压 -- hPa</div>' +
+                '  <div class="qw-wx-sub" id="qw-wx-sub"><span class="qw-chip">天气加载中…</span></div>' +
                 '</div>' +
                 '<div class="qw-forecast">' +
                 '  <div class="qw-forecast-title">未来预报</div>' +
@@ -907,8 +933,8 @@
         if (!card) return;
         var w = card.offsetWidth || 340;
         var h = card.offsetHeight || 420;
-         var compact = w < 280 || h < 320;
-         var tiny = w < 190 || h < 250;
+        var compact = w < 280 || h < 320;
+        var tiny = w < 190 || h < 250;
         card.classList.toggle("qw-compact", compact);
         card.classList.toggle("qw-tiny", tiny);
     }
@@ -1135,8 +1161,8 @@
         }
     }
 
-    // 渲染缓存数据；updateTime 传入缓存的抓取时间戳
-    function renderWeather(data, updateTime) {
+    // 渲染天气数据（缓存或实时响应，结构相同）
+    function renderWeather(data) {
         safe(function () {
             var current = data.current;
             var daily = data.daily;
@@ -1147,11 +1173,18 @@
             $("#qw-temp-value").textContent = Math.round(current.temperature_2m);
             $("#qw-weather-desc").textContent = codeInfo;
 
-            $("#qw-wx-sub").textContent =
-                "体感 " + Math.round(current.apparent_temperature) + "° · 湿度 " +
-                current.relative_humidity_2m + "% · 风速 " +
-                Math.round(current.wind_speed_10m) + " km/h · 气压 " +
-                Math.round(current.pressure_msl) + " hPa";
+            $("#qw-wx-sub").innerHTML = "";
+            // 详情以胶囊 chip 呈现（体感 / 湿度 / 风速 / 气压）
+            [["体感", Math.round(current.apparent_temperature) + "°"],
+             ["湿度", current.relative_humidity_2m + "%"],
+             ["风速", Math.round(current.wind_speed_10m) + " km/h"],
+             ["气压", Math.round(current.pressure_msl) + " hPa"]
+            ].forEach(function (p) {
+                var chip = document.createElement("span");
+                chip.className = "qw-chip";
+                chip.textContent = p[0] + " " + p[1];
+                $("#qw-wx-sub").appendChild(chip);
+            });
 
             renderForecast(daily);
             updateClock();
@@ -1183,7 +1216,7 @@
                     }
                     var now = Date.now();
                     saveWeatherCache(data);
-                    renderWeather(data, now);
+                    renderWeather(data);
                 })
                 .catch(function () {
                     // 网络失败时保留已显示的缓存数据，仅提示
@@ -1208,7 +1241,7 @@
                 cached.lon === loc.longitude;
 
             if (cacheMatches) {
-                renderWeather(cached.data, cached.ts);
+                renderWeather(cached.data);
                 var ageMin = (Date.now() - cached.ts) / 60000;
                 var interval = settings.refreshInterval || 30;
                 if (ageMin >= interval) {
@@ -1287,6 +1320,17 @@
     function applyRemoteSettings(next) {
         var prev = settings || {};
         settings = next;
+
+        // 本地刚保存（3 秒内，拖动/缩放的写盘请求在途）：位置与尺寸以
+        // 本地为准，覆盖远端可能尚未更新的旧值——等本轮 POST 落盘后，
+        // 下次轮询读到的服务端数据自然与本地一致，无需特殊处理。
+        if (Date.now() - _lastLocalSaveTs < 3000) {
+            settings.position = prev.position || null;
+            settings.width = prev.width;
+            settings.height = prev.height;
+            settings.widthRatio = prev.widthRatio;
+            settings.heightRatio = prev.heightRatio;
+        }
 
         // 外观类：直接重放
         applyOpacity();

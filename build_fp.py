@@ -137,7 +137,8 @@ def build_one(platform_override=None):
             for name in sorted(filenames):
                 ap = os.path.join(dirpath, name)
                 rel = os.path.relpath(ap, APP_DIR).replace(os.sep, '/')
-                add_regular(tar, rel, open(ap, 'rb').read())
+                with open(ap, 'rb') as fh:
+                    add_regular(tar, rel, fh.read())
 
     print(f'built: {out_path} ({os.path.getsize(out_path)} bytes)')
     print(f'app.tgz md5: {checksum}')
