@@ -4,8 +4,15 @@
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 APP_DIR="${TRIM_APPDEST:-$(dirname -- "${SCRIPT_DIR}")}"
 
+# 后台启动并立即返回：应用中心的升级请求有前端超时限制，
+# 若在这里同步等待依赖安装/健康检查，就会弹
+# “Request failed, please try again later”（后台任务其实还在继续）。
 if [ -x "${APP_DIR}/cmd/main" ]; then
-    "${APP_DIR}/cmd/main" start
+    if command -v setsid >/dev/null 2>&1; then
+        setsid nohup "${APP_DIR}/cmd/main" start >/dev/null 2>&1 &
+    else
+        nohup "${APP_DIR}/cmd/main" start >/dev/null 2>&1 &
+    fi
 fi
 
 exit 0

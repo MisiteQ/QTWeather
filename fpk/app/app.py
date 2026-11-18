@@ -1,5 +1,5 @@
 """
-时钟天气 QTWeather（com.qweather.widget）- Flask 后端服务（FPK 版本）v3.0.5
+时钟天气 QTWeather（com.qweather.widget）- Flask 后端服务（FPK 版本）v3.0.6
 天气源：中国天气网（国内直连）→ Open-Meteo → wttr.in 逐级兜底（无需 API Key）
 
 注入机制（v2.1.0，零 /usr/trim/www 写入）：
@@ -78,7 +78,7 @@ TIMEOUT = 10
 
 # 版本更新检查（只检查，不自动下载/安装）
 RELEASE_API = "https://api.github.com/repos/MisiteQ/QTWeather/releases/latest"
-APP_VERSION = "3.0.5"
+APP_VERSION = "3.0.6"
 
 # ===== 飞牛路径 =====
 FNOS_WWW_INDEX = "/usr/trim/www/index.html"

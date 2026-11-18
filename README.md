@@ -1,7 +1,7 @@
 # 时钟天气 QTWeather
 
 <p>
-  <img alt="Version" src="https://img.shields.io/badge/version-3.0.5-blue">
+  <img alt="Version" src="https://img.shields.io/badge/version-3.0.6-blue">
   <img alt="fnOS" src="https://img.shields.io/badge/fnOS-x86%20%7C%20arm-success">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-orange">
   <img alt="Data" src="https://img.shields.io/badge/data-中国天气网%20%7C%20Open--Meteo-green">
@@ -9,7 +9,7 @@
 
 飞牛 fnOS 桌面**时钟 + 天气**小部件（FPK 原生应用）：直接注入飞牛桌面显示，**无窗口标题栏**。卡片为大号时钟（时：分 + 秒 + 公历 + 农历干支）与实时天气 / 未来 5 天预报，**两个模块可独立开关**；点击飞牛「已安装」中的应用图标打开**设置中心**（独立窗口），支持全球城市搜索、自动刷新间隔、桌面自由拖动、卡片背景透明度（**0% 可全透明**，文字 / 图标始终不透明）、文字与图标配色、**字号 50%–200%** 与**自定义字体上传**（ttf/otf/woff/woff2）。设置保存到 NAS 后卡片**数秒内热生效，无需刷新桌面**；设置中心内置「关于」页并可向 GitHub Releases **自动检查新版本（仅检查，不自动安装）**。数据来源 [中国天气网](http://www.weather.com.cn/)（国内直连、免费、**无需 API Key**），并以 [Open-Meteo](https://open-meteo.com/) 与 wttr.in 逐级兜底；中国天气网接口要求 Referer 且不支持 CORS，天气请求统一经 NAS 后端同源代理。
 
-- 当前版本：**v3.0.5**
+- 当前版本：**v3.0.6**
 - 作者：**Misite齊**（[github.com/MisiteQ](https://github.com/MisiteQ)）
 - 仓库：[github.com/MisiteQ/QTWeather](https://github.com/MisiteQ/QTWeather)
 - 适用平台：fnOS **x86 + arm**（最低系统版本 1.0.0）
@@ -82,7 +82,7 @@ https://github.com/MisiteQ/FnDepot
 
 ### 方式二：手动安装 FPK
 
-1. 到 [Releases](https://github.com/MisiteQ/QTWeather/releases) 下载 `com.qweather.widget-3.0.5-x86.fpk`（arm 设备下载 `com.qweather.widget-3.0.5-arm.fpk`）
+1. 到 [Releases](https://github.com/MisiteQ/QTWeather/releases) 下载 `com.qweather.widget-3.0.6-x86.fpk`（arm 设备下载 `com.qweather.widget-3.0.6-arm.fpk`）
 2. 飞牛 OS → **应用中心** → 左下角 **手动安装** → 选择 fpk 文件
 3. 安装完成后，时钟天气卡片即显示在飞牛桌面上（若未显示，强制刷新桌面 `Ctrl+Shift+R`）；点击「已安装」中的应用图标可打开设置中心
 
@@ -111,7 +111,7 @@ python3 build_fp.py
 bash build.sh
 ```
 
-> 双架构发布：分别将 `platform` 设为 `x86` 和 `arm` 各打包一次，产物为 `com.qweather.widget-3.0.5-x86.fpk` 和 `com.qweather.widget-3.0.5-arm.fpk`。
+> 双架构发布：分别将 `platform` 设为 `x86` 和 `arm` 各打包一次，产物为 `com.qweather.widget-3.0.6-x86.fpk` 和 `com.qweather.widget-3.0.6-arm.fpk`。
 
 或直接运行：
 
@@ -164,6 +164,7 @@ fpk/
 
 | 版本 | 内容 |
 |---|---|
+| v3.0.6 | **修复应用中心每次升级都弹「无法更新 / Request failed, please try again later」**：升级回调原先同步调用启动脚本，并等待依赖安装与最多 20 秒健康检查，超过应用中心前端请求超时时间，导致前端提示失败（后台实际仍在继续安装）；现改为后台启动服务并立即返回，升级请求快速完成，服务随后自动就绪 |
 | v3.0.5 | **升级体验优化**：Python 运行依赖（Flask / requests / gunicorn）从应用目录迁移到持久化数据目录（与 `settings.json` 同级），fnOS 升级替换应用目录时依赖不再丢失，后续升级无需重新 `pip install`；升级回调移除重复的依赖安装，只负责启动服务；首次从旧版升级自动迁移已有依赖。升级空窗期由数十秒 ~ 数分钟缩短到数秒，减少应用中心「更新中」等待与网关短暂断连 |
 | v3.0.4 | **天气源切换为国内中国天气网**：解决国内网络访问 Open-Meteo 长期 TLS 握手超时、卡片一直显示「天气不可用」的问题。天气源改为「中国天气网（国内直连、免费无需 Key）→ Open-Meteo → wttr.in」逐级兜底；中国天气网接口要求 Referer 且不支持 CORS，小组件与设置中心预览统一经 NAS 后端同源代理获取；后端把各源结果归一为原 Open-Meteo 字段结构，5 天预报与体感/湿度/风速/气压展示保持不变；天气获取失败不再把原始网络报错显示到卡片，改为可读提示 |
 | v3.0.2 | **修复设置界面 Not Found**：修复 build_fp.py 漏打包 `ui/` 目录导致 fpk 中缺少 `ui/config`，应用中心无法构造设置窗口 URL；恢复 `gatewayPrefix` 为 `/app/com-qweather-widget` 匹配 trim_app_center 实际注册前缀；修复启动时旧 gunicorn 进程未清理导致端口冲突、健康检查误判成功的问题 |
