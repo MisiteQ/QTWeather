@@ -1,6 +1,6 @@
 """
-时钟天气 QTWeather（com.qweather.widget）- Flask 后端服务（FPK 版本）v3.0.3
-使用 Open-Meteo 免费天气 API（无需 API Key）
+时钟天气 QTWeather（com.qweather.widget）- Flask 后端服务（FPK 版本）v3.0.4
+天气源：中国天气网（国内直连）→ Open-Meteo → wttr.in 逐级兜底（无需 API Key）
 
 注入机制（v2.1.0，零 /usr/trim/www 写入）：
 
@@ -26,6 +26,7 @@
 import os
 import sys
 import json
+import re
 import time
 import zlib
 import random
@@ -73,7 +74,7 @@ TIMEOUT = 10
 
 # 版本更新检查（只检查，不自动下载/安装）
 RELEASE_API = "https://api.github.com/repos/MisiteQ/QTWeather/releases/latest"
-APP_VERSION = "3.0.3"
+APP_VERSION = "3.0.4"
 
 # ===== 飞牛路径 =====
 FNOS_WWW_INDEX = "/usr/trim/www/index.html"
@@ -782,7 +783,239 @@ def uninstall():
     })
 
 
-# ===== 天气 API（设置页/备用；widget 直连 Open-Meteo） =====
+# ===== 天气 API =====
+# 数据源按序降级：中国天气网（国内直连、免费无需 Key）→ Open-Meteo → wttr.in。
+# 中国天气网接口要求 Referer 且不支持 CORS，浏览器无法直连，因此小组件统一
+# 经 NAS 后端（/qweather-api/weather）获取；这里负责把各源结果归一成
+# Open-Meteo 的字段结构，前端渲染逻辑保持不变。
+CN_SEARCH_API = "http://toy1.weather.com.cn/search"
+CN_WEATHER_API = "http://d1.weather.com.cn/weather_index/%s.html"
+CN_HEADERS = {
+    "User-Agent": "Mozilla/5.0 QTWeather",
+    "Referer": "http://www.weather.com.cn/",
+}
+
+# 中国天气网天气现象代码 -> WMO 代码（前端按 WMO 选图标/描述）
+CN_TO_WMO = {
+    "00": 0, "01": 2, "02": 3, "03": 80, "04": 95, "05": 96, "06": 66,
+    "07": 61, "08": 63, "09": 65, "10": 65, "11": 65, "12": 65,
+    "13": 85, "14": 71, "15": 73, "16": 75, "17": 75, "18": 45, "19": 66,
+    "20": 45, "21": 63, "22": 63, "23": 65, "24": 65, "25": 65,
+    "26": 73, "27": 75, "28": 75, "29": 45, "30": 45, "31": 45, "53": 45,
+}
+
+# wttr.in（WWO）天气代码 -> WMO 代码
+WWO_TO_WMO = {
+    113: 0, 116: 2, 119: 3, 122: 3, 143: 45, 248: 45, 260: 45,
+    176: 61, 293: 61, 296: 61, 299: 63, 302: 63, 305: 65, 308: 65,
+    311: 56, 314: 57, 317: 66, 320: 67, 350: 77,
+    323: 71, 326: 71, 329: 73, 332: 75, 335: 75, 338: 75,
+    368: 85, 371: 86, 374: 77, 377: 77,
+    353: 80, 356: 81, 359: 82, 386: 95, 389: 99, 392: 95, 395: 99,
+}
+
+_CN_CITY_CODE_CACHE = {}
+
+
+def _wx_error_text(err):
+    """把网络异常翻成用户看得懂的一句话（原始 ssl/urlopen 报错对用户无意义）。"""
+    s = str(err or "").lower()
+    if "timed out" in s or "timeout" in s:
+        return "连接天气服务超时，请检查 NAS 外网连接"
+    if "name or service not known" in s or "getaddrinfo" in s or \
+            "name resolution" in s or "failed to resolve" in s:
+        return "天气服务域名解析失败（DNS）"
+    if "ssl" in s or "certificate" in s:
+        return "天气服务 HTTPS 握手失败"
+    if "connection refused" in s or "unreachable" in s:
+        return "无法连接天气服务"
+    return "天气服务暂时不可用"
+
+
+def _cn_get(url, timeout=TIMEOUT):
+    """中国天气网接口（校验 Referer）；响应体为 UTF-8，兼容旧版 GBK。"""
+    resp = requests.get(url, headers=CN_HEADERS, timeout=timeout)
+    resp.raise_for_status()
+    raw = resp.content
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("gb18030", "ignore")
+
+
+def _js_var_obj(text, name):
+    """从 JS 响应里取出 `var name = {...}` 的 JSON 对象（按花括号配对截取）。"""
+    m = re.search(r"var\s+%s\s*=\s*" % re.escape(name), text)
+    if not m:
+        return None
+    start = text.find("{", m.end())
+    if start < 0:
+        return None
+    depth, in_str, esc = 0, False, False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(text[start:i + 1])
+                except ValueError:
+                    return None
+    return None
+
+
+def _cn_city_code(city_name):
+    """中文城市名 -> 中国天气网城市代码（101xxxxxx，结果进程内缓存）。"""
+    q = re.sub(r"[（(].*?[）)]", "", str(city_name or ""))
+    q = re.sub(r"[市省区县]$", "", q).strip()
+    if not q:
+        return None
+    code = _CN_CITY_CODE_CACHE.get(q)
+    if code:
+        return code
+    from urllib.parse import quote
+    raw = _cn_get(CN_SEARCH_API + "?cityname=" + quote(q), timeout=8)
+    m = re.search(r'"ref":"(101\d{6})~', raw)
+    if not m:
+        return None
+    _CN_CITY_CODE_CACHE[q] = m.group(1)
+    return m.group(1)
+
+
+def _num(v):
+    m = re.search(r"-?\d+(?:\.\d+)?", str(v if v is not None else ""))
+    return float(m.group(0)) if m else 0.0
+
+
+def _weather_from_cn(city_name):
+    """中国天气网实时天气 + 5 天预报（CMA 数据），归一成 Open-Meteo 结构。"""
+    code = _cn_city_code(city_name)
+    if not code:
+        raise ValueError("未找到中国天气网城市代码")
+    text = _cn_get(CN_WEATHER_API % code)
+    sk = _js_var_obj(text, "dataSK") or {}
+    fc = _js_var_obj(text, "fc") or {}
+    if sk.get("temp") is None:
+        raise ValueError("中国天气网无实时数据")
+
+    wc = str(sk.get("weathercode") or "d00")   # d00=白天，n00=夜间
+    wmo = CN_TO_WMO.get(wc[1:], 3)
+    current = {
+        "temperature_2m": round(_num(sk.get("temp")), 1),
+        "apparent_temperature": round(_num(sk.get("temp")), 1),  # 该接口无体感
+        "relative_humidity_2m": round(_num(sk.get("SD")), 1),
+        "is_day": 0 if wc[:1] == "n" else 1,
+        "weather_code": wmo,
+        "wind_speed_10m": round(_num(sk.get("wse")), 1),
+        "pressure_msl": round(_num(sk.get("qy")), 1),
+    }
+
+    daily = {"time": [], "weather_code": [],
+             "temperature_2m_max": [], "temperature_2m_min": []}
+    now_year = time.localtime().tm_year
+    now_mon = time.localtime().tm_mon
+    for item in (fc.get("f") or [])[:5]:
+        try:
+            mm, dd = [int(x) for x in str(item.get("fi") or "").split("/")]
+        except ValueError:
+            continue
+        # 跨年时接口日期月份会小于当前月（如 12/31 之后出现 01/01）
+        year = now_year + 1 if mm < now_mon - 6 else now_year
+        daily["time"].append("%04d-%02d-%02d" % (year, mm, dd))
+        daily["weather_code"].append(CN_TO_WMO.get(str(item.get("fa") or ""), 3))
+        daily["temperature_2m_max"].append(round(_num(item.get("fc")), 1))
+        daily["temperature_2m_min"].append(round(_num(item.get("fd")), 1))
+
+    if not daily["time"]:
+        raise ValueError("中国天气网无预报数据")
+    return {"current": current, "daily": daily}
+
+
+def _weather_from_open_meteo(lat, lon):
+    """Open-Meteo 备用源（返回结构即为前端所需的标准结构）。"""
+    resp = requests.get(
+        WEATHER_API,
+        params={
+            "latitude": lat,
+            "longitude": lon,
+            # 只取前端实际渲染的字段，不拉取 sunrise/sunset 等无用数据
+            "current": ["temperature_2m", "relative_humidity_2m",
+                        "apparent_temperature", "is_day", "weather_code",
+                        "wind_speed_10m", "pressure_msl"],
+            "daily": ["weather_code", "temperature_2m_max",
+                      "temperature_2m_min"],
+            "timezone": "auto",
+            "forecast_days": 5,
+        },
+        timeout=TIMEOUT)
+    resp.raise_for_status()
+    data = resp.json()
+    if (data.get("current") or {}).get("temperature_2m") is None:
+        raise ValueError("Open-Meteo 无数据")
+    return data
+
+
+def _weather_from_wttr(lat, lon):
+    """wttr.in 末级兜底（Open-Meteo 也不可达时），同样归一成标准结构。"""
+    resp = requests.get(
+        "https://wttr.in/%.4f,%.4f?format=j1" % (float(lat), float(lon)),
+        headers={"User-Agent": "Mozilla/5.0 QTWeather"},
+        timeout=TIMEOUT)
+    resp.raise_for_status()
+    data = resp.json()
+    cur = (data.get("current_condition") or [{}])[0]
+    temp = cur.get("temp_C")
+    if temp is None:
+        raise ValueError("wttr.in 无数据")
+
+    def _wmo(v):
+        try:
+            code = int(float(v))
+        except (TypeError, ValueError):
+            return 3
+        return WWO_TO_WMO.get(code, 3)
+
+    current = {
+        "temperature_2m": round(float(temp), 1),
+        "apparent_temperature": round(float(cur.get("FeelsLikeC") or temp), 1),
+        "relative_humidity_2m": round(float(cur.get("humidity") or 0), 1),
+        "is_day": 1,
+        "weather_code": _wmo(cur.get("weatherCode")),
+        "wind_speed_10m": round(float(cur.get("windspeedKmph") or 0), 1),
+        "pressure_msl": round(float(cur.get("pressure") or 0), 1),
+    }
+    try:  # 用观测地本地时间判断昼夜
+        hour = time.strptime(str(cur.get("localObsDateTime") or ""),
+                             "%Y-%m-%d %I:%M %p").tm_hour
+        current["is_day"] = 1 if 6 <= hour < 18 else 0
+    except ValueError:
+        pass
+
+    daily = {"time": [], "weather_code": [],
+             "temperature_2m_max": [], "temperature_2m_min": []}
+    for day in data.get("weather") or []:
+        hourly = day.get("hourly") or [{}]
+        noon = hourly[min(4, len(hourly) - 1)]
+        daily["time"].append(str(day.get("date") or ""))
+        daily["weather_code"].append(_wmo(noon.get("weatherCode")))
+        daily["temperature_2m_max"].append(round(_num(day.get("maxtempC")), 1))
+        daily["temperature_2m_min"].append(round(_num(day.get("mintempC")), 1))
+    if not daily["time"]:
+        raise ValueError("wttr.in 无预报数据")
+    return {"current": current, "daily": daily}
+
+
 @app.route("/api/geocode")
 def geocode():
     name = request.args.get("name", "").strip()
@@ -804,29 +1037,27 @@ def geocode():
 def weather():
     lat = request.args.get("lat")
     lon = request.args.get("lon")
+    name = request.args.get("name", "").strip()
     if not lat or not lon:
         return jsonify({"error": "缺少经纬度参数"}), 400
+    last_err = None
+    # 1) 中文地点优先走中国天气网（国内直连）
+    if re.search(r"[\u4e00-\u9fff]", name):
+        try:
+            return jsonify(_weather_from_cn(name))
+        except Exception as e:  # noqa: BLE001 - 逐级降级，记录后继续
+            last_err = e
+    # 2) Open-Meteo
     try:
-        resp = requests.get(
-            WEATHER_API,
-            params={
-                "latitude": lat,
-                "longitude": lon,
-                # 与 widget.js 直连请求保持一致：只取前端实际渲染的字段，
-                # 不拉取 sunrise/sunset/wind_direction 等无用数据
-                "current": ["temperature_2m", "relative_humidity_2m",
-                            "apparent_temperature", "is_day", "weather_code",
-                            "wind_speed_10m", "pressure_msl"],
-                "daily": ["weather_code", "temperature_2m_max",
-                          "temperature_2m_min"],
-                "timezone": "auto",
-                "forecast_days": 5,
-            },
-            timeout=TIMEOUT)
-        resp.raise_for_status()
-        return jsonify(resp.json())
-    except requests.RequestException as e:
-        return jsonify({"error": str(e)}), 502
+        return jsonify(_weather_from_open_meteo(lat, lon))
+    except Exception as e:  # noqa: BLE001
+        last_err = e
+    # 3) wttr.in
+    try:
+        return jsonify(_weather_from_wttr(lat, lon))
+    except Exception:  # noqa: BLE001
+        pass
+    return jsonify({"error": _wx_error_text(last_err)}), 502
 
 
 @app.route("/api/check_update")

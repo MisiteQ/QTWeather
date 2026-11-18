@@ -340,12 +340,12 @@
         <img class="about-logo" id="about-logo" src="/qweather-icon.png" alt="时钟天气 QTWeather">
         <div>
           <div class="about-name">时钟天气 <span class="about-en">QTWeather</span></div>
-          <div class="about-ver">当前版本 <b id="app-version">v3.0.3</b></div>
+          <div class="about-ver">当前版本 <b id="app-version">v3.0.4</b></div>
         </div>
       </div>
       <div class="about-line">作者：Misite齊 · <a href="https://github.com/MisiteQ" target="_blank" rel="noopener">github.com/MisiteQ</a></div>
       <div class="about-line">仓库：<a href="https://github.com/MisiteQ/QTWeather" target="_blank" rel="noopener">github.com/MisiteQ/QTWeather</a></div>
-      <div class="about-line">天气数据：Open-Meteo（无需 API Key）</div>
+      <div class="about-line">天气数据：中国天气网（国内直连）、Open-Meteo / wttr.in 兜底（无需 API Key）</div>
       <div class="about-update">
         <span class="update-state" id="update-state">打开时自动检查更新…</span>
         <button class="btn btn-ghost" id="check-update-btn" style="padding:6px 12px;font-size:12px;">检查更新</button>
@@ -408,7 +408,7 @@ var API_PRESETS = (function(){
   ];
 })();
 var api = API_PRESETS[0];
-var APP_VERSION = "3.0.3";
+var APP_VERSION = "3.0.4";
 var REPO_URL = "https://github.com/MisiteQ/QTWeather";
 var CN_CITIES_CACHE_KEY = "qweather_widget_cities_v1";
 
@@ -882,7 +882,8 @@ function fetchPreviewWeather(){
   // 经 NAS 后端代理取天气（同源请求，网关 iframe 下可用；后端返回字段为
   // 渲染所需字段的超集，多余字段忽略即可）
   var p = new URLSearchParams({
-    lat: form.location.latitude, lon: form.location.longitude
+    lat: form.location.latitude, lon: form.location.longitude,
+    name: form.location.name || ""
   });
   return fetch(api.weather + "?" + p.toString(), { credentials: "same-origin" })
     .then(function(r){ return r.json(); })

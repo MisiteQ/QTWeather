@@ -1,15 +1,15 @@
 # 时钟天气 QTWeather
 
 <p>
-  <img alt="Version" src="https://img.shields.io/badge/version-3.0.2-blue">
+  <img alt="Version" src="https://img.shields.io/badge/version-3.0.4-blue">
   <img alt="fnOS" src="https://img.shields.io/badge/fnOS-x86%20%7C%20arm-success">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-orange">
-  <img alt="Data" src="https://img.shields.io/badge/data-Open--Meteo-green">
+  <img alt="Data" src="https://img.shields.io/badge/data-中国天气网%20%7C%20Open--Meteo-green">
 </p>
 
-飞牛 fnOS 桌面**时钟 + 天气**小部件（FPK 原生应用）：直接注入飞牛桌面显示，**无窗口标题栏**。卡片为大号时钟（时：分 + 秒 + 公历 + 农历干支）与实时天气 / 未来 5 天预报，**两个模块可独立开关**；点击飞牛「已安装」中的应用图标打开**设置中心**（独立窗口），支持全球城市搜索、自动刷新间隔、桌面自由拖动、卡片背景透明度（**0% 可全透明**，文字 / 图标始终不透明）、文字与图标配色、**字号 50%–200%** 与**自定义字体上传**（ttf/otf/woff/woff2）。设置保存到 NAS 后卡片**数秒内热生效，无需刷新桌面**；设置中心内置「关于」页并可向 GitHub Releases **自动检查新版本（仅检查，不自动安装）**。数据来源 [Open-Meteo](https://open-meteo.com/)（免费，**无需 API Key**），小部件前端直连 Open-Meteo，无需经 NAS 网关中转。
+飞牛 fnOS 桌面**时钟 + 天气**小部件（FPK 原生应用）：直接注入飞牛桌面显示，**无窗口标题栏**。卡片为大号时钟（时：分 + 秒 + 公历 + 农历干支）与实时天气 / 未来 5 天预报，**两个模块可独立开关**；点击飞牛「已安装」中的应用图标打开**设置中心**（独立窗口），支持全球城市搜索、自动刷新间隔、桌面自由拖动、卡片背景透明度（**0% 可全透明**，文字 / 图标始终不透明）、文字与图标配色、**字号 50%–200%** 与**自定义字体上传**（ttf/otf/woff/woff2）。设置保存到 NAS 后卡片**数秒内热生效，无需刷新桌面**；设置中心内置「关于」页并可向 GitHub Releases **自动检查新版本（仅检查，不自动安装）**。数据来源 [中国天气网](http://www.weather.com.cn/)（国内直连、免费、**无需 API Key**），并以 [Open-Meteo](https://open-meteo.com/) 与 wttr.in 逐级兜底；中国天气网接口要求 Referer 且不支持 CORS，天气请求统一经 NAS 后端同源代理。
 
-- 当前版本：**v3.0.2**
+- 当前版本：**v3.0.4**
 - 作者：**Misite齊**（[github.com/MisiteQ](https://github.com/MisiteQ)）
 - 仓库：[github.com/MisiteQ/QTWeather](https://github.com/MisiteQ/QTWeather)
 - 适用平台：fnOS **x86 + arm**（最低系统版本 1.0.0）
@@ -24,7 +24,7 @@
 - **📅 5 天预报**：今天起未来 5 天，每日天气图标与最高 / 最低温
 - **🪟 设置中心独立窗口**：点击飞牛「已安装」中的应用图标即打开设置中心（显示模块 / 天气地点与自动刷新 / 外观 / 关于）；桌面卡片上不再有任何设置入口，只展示信息
 - **⚡ 保存即热生效**：卡片每 4 秒轻量轮询 NAS `settings.json`（nginx 直接 alias 文件，不走应用进程），设置中心保存后配色、透明度、字号、字体、模块开关、城市、刷新间隔、显隐、重置位置全部免刷新生效
-- **🔍 城市切换**：双源搜索——内置中国行政区划坐标库（省/市/县三级 3200+，来源阿里 DataV）本地秒搜，国际城市直连 Open-Meteo
+- **🔍 城市切换**：双源搜索——内置中国行政区划坐标库（省/市/县三级 3200+，来源阿里 DataV）本地秒搜，国际城市经 NAS 后端代理 Open-Meteo
 - **🔄 自动刷新**：10 / 30 / 60 / 180 分钟可选（默认 30 分钟），上次天气更新时间显示在设置中心
 - **🎚️ 背景透明度**：滑动调节，**下限 0%（可真正全透明）**；透明只作用于卡片底色，磨砂 / 投影 / 分隔线随透明度同步淡出
 - **🎨 文字 · 图标 · 定位配色**：三个取色器——「文字颜色」「图标颜色」与独立的「定位图标」（城市名左侧定位针，默认红色），设置中心右侧实时预览
@@ -68,7 +68,7 @@ fnOS 的 nginx 内置 `trim_recover` 模块：直接修改 `/usr/trim/www` 会�
 
 浏览器 `localStorage` **完全不参与设置的读写**（仅天气数据仍按经纬度做本地缓存）。因此换浏览器、换电脑、清理浏览器缓存后，登录飞牛桌面读到的仍是 NAS 里保存的城市，不会是默认的北京。
 
-之所以不走 fnOS 应用网关 `/app/<name>/api/*`：widget.js 注入在桌面页（非应用 iframe），网关对该页的请求一律返回 13 字节 `invalid token`，设置永远写不进 NAS（v2.3.1 的子域方案同因此失效并静默回退 localStorage）。只有天气数据需要联网，由前端直连 Open-Meteo。
+之所以不走 fnOS 应用网关 `/app/<name>/api/*`：widget.js 注入在桌面页（非应用 iframe），网关对该页的请求一律返回 13 字节 `invalid token`，设置永远写不进 NAS（v2.3.1 的子域方案同因此失效并静默回退 localStorage）。天气数据由 NAS 后端代理获取（中国天气网优先），前端只做同源请求。
 
 ## 📦 安装
 
@@ -82,7 +82,7 @@ https://github.com/MisiteQ/FnDepot
 
 ### 方式二：手动安装 FPK
 
-1. 到 [Releases](https://github.com/MisiteQ/QTWeather/releases) 下载 `com.qweather.widget-3.0.2-x86.fpk`（arm 设备下载 `com.qweather.widget-3.0.2-arm.fpk`）
+1. 到 [Releases](https://github.com/MisiteQ/QTWeather/releases) 下载 `com.qweather.widget-3.0.4-x86.fpk`（arm 设备下载 `com.qweather.widget-3.0.4-arm.fpk`）
 2. 飞牛 OS → **应用中心** → 左下角 **手动安装** → 选择 fpk 文件
 3. 安装完成后，时钟天气卡片即显示在飞牛桌面上（若未显示，强制刷新桌面 `Ctrl+Shift+R`）；点击「已安装」中的应用图标可打开设置中心
 
@@ -111,7 +111,7 @@ python3 build_fp.py
 bash build.sh
 ```
 
-> 双架构发布：分别将 `platform` 设为 `x86` 和 `arm` 各打包一次，产物为 `com.qweather.widget-3.0.2-x86.fpk` 和 `com.qweather.widget-3.0.2-arm.fpk`。
+> 双架构发布：分别将 `platform` 设为 `x86` 和 `arm` 各打包一次，产物为 `com.qweather.widget-3.0.4-x86.fpk` 和 `com.qweather.widget-3.0.4-arm.fpk`。
 
 或直接运行：
 
@@ -148,21 +148,23 @@ fpk/
 
 ## 🔒 隐私与安全
 
-- 天气数据由浏览器前端直连 [Open-Meteo](https://open-meteo.com/) 公开 API 获取，**不经过 NAS 中转、不上传任何个人信息**
-- 城市搜索为**双源合并**：中国城市（省/市/县三级 3200+，内置坐标库，来源阿里 DataV GeoAtlas）本地秒搜；国际城市直连 Open-Meteo Geocoding API。Open-Meteo 地理编码对中国中小城市覆盖不足，内置库保证国内地名可搜且坐标准确
-- 应用后端仅用于桌面注入维护与备用天气查询，不存储任何用户数据
+- 天气数据由 NAS 后端代理 [中国天气网](http://www.weather.com.cn/) 公开接口获取（Open-Meteo / wttr.in 兜底），仅发送城市名或经纬度，**不上传任何个人信息**
+- 城市搜索为**双源合并**：中国城市（省/市/县三级 3200+，内置坐标库，来源阿里 DataV GeoAtlas）本地秒搜；国际城市经 NAS 后端代理 Open-Meteo Geocoding API。Open-Meteo 地理编码对中国中小城市覆盖不足，内置库保证国内地名可搜且坐标准确
+- 应用后端仅用于桌面注入维护与天气查询代理，不存储任何用户数据
 - `ng_keys.json` 中的密钥为 fnOS 系统 `ng.conf.zip` 的 ZipCrypto 内部密钥（通过已知明文攻击恢复），仅用于在系统恢复包中持久化本应用的 nginx 配置
 
 ## 🙏 致谢
 
 - 飞牛 fnOS 与 [FnDepot](https://github.com/EWEDLCM/FnDepot)
-- [Open-Meteo](https://open-meteo.com/) 免费天气 API
+- [中国天气网](http://www.weather.com.cn/)（中国气象局）实时天气与预报数据
+- [Open-Meteo](https://open-meteo.com/) 免费天气 API（备用源）
 - [阿里 DataV GeoAtlas](https://datav.aliyun.com/) 中国行政区划坐标数据
 
 ## 📋 版本历史
 
 | 版本 | 内容 |
 |---|---|
+| v3.0.4 | **天气源切换为国内中国天气网**：解决国内网络访问 Open-Meteo 长期 TLS 握手超时、卡片一直显示「天气不可用」的问题。天气源改为「中国天气网（国内直连、免费无需 Key）→ Open-Meteo → wttr.in」逐级兜底；中国天气网接口要求 Referer 且不支持 CORS，小组件与设置中心预览统一经 NAS 后端同源代理获取；后端把各源结果归一为原 Open-Meteo 字段结构，5 天预报与体感/湿度/风速/气压展示保持不变；天气获取失败不再把原始网络报错显示到卡片，改为可读提示 |
 | v3.0.2 | **修复设置界面 Not Found**：修复 build_fp.py 漏打包 `ui/` 目录导致 fpk 中缺少 `ui/config`，应用中心无法构造设置窗口 URL；恢复 `gatewayPrefix` 为 `/app/com-qweather-widget` 匹配 trim_app_center 实际注册前缀；修复启动时旧 gunicorn 进程未清理导致端口冲突、健康检查误判成功的问题 |
 | v3.0.1 | **修复设置窗口局域网/域名打不开**：应用窗口改为 fnOS 官方网关 unix socket 同源模式（`https://<host>/app/com.qweather.widget/`），不再直连仅监听 127.0.0.1 的 `http://<host>:5698`（外部设备不可达且 HTTPS 拦截 HTTP 混合内容）；设置中心天气/地理编码/更新检查统一改由 NAS 后端同源代理，规避网关 CSP 限制；nginx `/qweather-api/` 反代合并为统一前缀 |
 | v3.0.0 | **设置中心独立窗口 + 模块拆分 + 字号/自定义字体 + 更名换标 + 关于与更新检查**：①点击飞牛「已安装」图标弹出的独立窗口由提示页改为完整**设置中心**（显示模块 / 天气地点与自动刷新 / 外观 / 关于），桌面卡片移除齿轮与全部设置入口；②时间日期与天气**模块拆开独立开关**（至少保留一个）；③外观新增**字号调节**（50%–200%，步进 5 或直接输入，全部文字以 `calc(Npx * var(--qw-fs))` 等比缩放）与**自定义字体上传**（ttf/otf/woff/woff2，≤25MB，4 字节魔数校验，单字体槽存于 NAS `fonts/`，`@font-face` 带版本号破缓存，可恢复默认）；④应用更名「**时钟天气 QTWeather**」并启用全新青绿色时钟·太阳·云图标（64/256、设置中心 Logo 与 favicon）；⑤设置中心新增「**关于**」：版本、作者主页、仓库链接，打开时自动向 GitHub Releases 检查新版本、可手动检查，**仅检查不自动安装**；⑥卡片每 **4 秒轮询** NAS 设置热生效（位置字段只响应「重置为 null」，不与手动拖动打架）；⑦最小尺寸放宽到 240×120，整卡可拖；⑧设置页端点三上下文自适应探测（桌面 vhost 同源 `/qweather-*` / fnOS 网关 iframe 相对路径 / 5698 直连）；⑨窄宽度布局适配修复——此前紧凑模式误把整个预报区块（含「未来预报」标题）变成两列网格，导致标题被挤到左格、预报项溢出卡片右缘，现改为只对预报列表生效并采用自适应列数（窄了自动折行、绝不横向溢出），紧凑阈值由 250px 提到 280px 覆盖大字号；设置中心右侧实时预览底图由紫蓝渐变改为素雅浅冷灰渐变 |

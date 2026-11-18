@@ -1,9 +1,12 @@
 /**
- * 时钟天气 QTWeather 桌面小组件 v3.0.2
+ * 时钟天气 QTWeather 桌面小组件 v3.0.4
  * 直接注入飞牛桌面页面运行，无窗口标题栏
  * 支持：拖动、调整大小、模块独立开关、透明度、文字/图标/定位配色、
  *       字号调节、自定义字体、地点切换、自动刷新、隐藏/恢复
  *
+ * v3.0.4: 天气源切换为中国天气网（国内直连）优先，Open-Meteo / wttr.in
+ *         逐级兜底；天气请求统一经 NAS 后端同源反代，修复国内网络下
+ *         卡片一直显示「天气不可用」的问题。
  * v3.0.2: 修复 build_fp.py 漏打包 ui/ 目录导致设置界面 Not Found；
  *         恢复 gatewayPrefix 为 /app/com-qweather-widget 匹配 trim_app_center
  *         实际注册前缀；修复启动时旧进程未清理导致端口冲突、健康检查误判成功的问题。
@@ -114,8 +117,11 @@
         return null;
     }
 
-    // ===== API（直连 Open-Meteo，CORS 开放，无需 Key / 无需经 NAS 网关） =====
-    var DIRECT_WEATHER = "https://api.open-meteo.com/v1/forecast";
+    // ===== API =====
+    // 天气统一经 NAS 后端同源反代获取：中国天气网（国内直连）优先，
+    // Open-Meteo / wttr.in 兜底。中国天气网接口要求 Referer 且不支持
+    // CORS，浏览器无法直连，故只能由后端代理（见 app.py 的 Nginx 配置）。
+    var WEATHER_API = "/qweather-api/weather";
     // 地点搜索只存在于独立设置窗口（settings.html），卡片本体不再内建搜索。
     // 设置持久化：唯一数据源是 NAS 本机 settings.json，由 nginx 同源
     // 直接提供（/qweather-settings 读、/qweather-api/settings 写），
@@ -1200,21 +1206,17 @@
             var loc = settings.location;
 
             var params = new URLSearchParams({
-                latitude: loc.latitude,
-                longitude: loc.longitude,
-                current: "temperature_2m,apparent_temperature,relative_humidity_2m,is_day,weather_code,wind_speed_10m,pressure_msl",
-                daily: "weather_code,temperature_2m_max,temperature_2m_min",
-                timezone: "auto",
-                forecast_days: "5"
+                lat: loc.latitude,
+                lon: loc.longitude,
+                name: loc.name || ""
             });
-            fetch(DIRECT_WEATHER + "?" + params.toString(), { credentials: "same-origin" })
+            fetch(WEATHER_API + "?" + params.toString(), { credentials: "same-origin" })
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     if (data.error) {
                         $("#qw-weather-desc").textContent = data.error;
                         return;
                     }
-                    var now = Date.now();
                     saveWeatherCache(data);
                     renderWeather(data);
                 })
