@@ -7,7 +7,10 @@ PKGVAR_DIR="${TRIM_PKGVAR:-${APP_DIR}/var}"
 TEMP_LOG_FILE="${TRIM_TEMP_LOGFILE:-/tmp/com.qweather.widget.log}"
 PID_FILE="${PKGVAR_DIR}/app.pid"
 LOG_FILE="${PKGVAR_DIR}/app.log"
-LIBS_DIR="${APP_DIR}/libs"
+# v3.0.5：运行依赖改存持久化数据目录（与 settings.json 同级），
+# 升级替换 target 时不会丢失，后续升级无需重新 pip 安装。
+LIBS_DIR="${PKGVAR_DIR}/libs"
+LEGACY_LIBS_DIR="${APP_DIR}/libs"
 # gunicorn 双绑定（参照 fn-seekbox / fnytdlp 等网关应用）：
 #   - unix socket 放在 target 目录（/var/apps/<app>/target -> @appcenter/<app>）
 #     下，trim_sac 扫描各应用 target 目录的 *.sock，填充 gateway_socket 并向
@@ -20,8 +23,17 @@ SERVICE_PORT="${TRIM_SERVICE_PORT:-5698}"
 
 # 确保依赖已安装（libs 目录存在且包含 gunicorn）
 ensure_deps() {
-    # 检查 gunicorn 是否可用（通过 PYTHONPATH）
-    if PYTHONPATH="${LIBS_DIR}" python3 -c "import gunicorn" 2>/dev/null; then
+    # 依赖目录迁移：旧版本装在 APP_DIR/libs，首次启动时搬到持久化目录，
+    # 避免升级后重复下载安装。
+    mkdir -p "${PKGVAR_DIR}"
+    if [ -d "${LEGACY_LIBS_DIR}" ] && [ ! -d "${LIBS_DIR}" ]; then
+        mv "${LEGACY_LIBS_DIR}" "${LIBS_DIR}" 2>/dev/null || \
+            cp -a "${LEGACY_LIBS_DIR}" "${LIBS_DIR}" 2>/dev/null
+        rm -rf "${LEGACY_LIBS_DIR}" 2>/dev/null
+    fi
+
+    # 检查依赖是否完整（gunicorn + flask + requests）
+    if PYTHONPATH="${LIBS_DIR}" python3 -c "import gunicorn, flask, requests" 2>/dev/null; then
         return 0
     fi
 

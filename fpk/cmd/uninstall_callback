@@ -7,8 +7,13 @@
 # 1. 清理进程（精确匹配本应用 socket 路径，不误杀其他 gunicorn）
 pkill -f "gunicorn.*com.qweather.widget/app.sock" 2>/dev/null
 
-# 2. 清理依赖目录
-rm -rf "${TRIM_APPDEST}/libs" 2>/dev/null
+# 2. 清理依赖目录（旧版在应用目录，v3.0.5 起在持久化数据目录）
+if [ -n "${TRIM_APPDEST}" ]; then
+    rm -rf "${TRIM_APPDEST}/libs" 2>/dev/null
+fi
+if [ -n "${TRIM_PKGVAR}" ]; then
+    rm -rf "${TRIM_PKGVAR}/libs" 2>/dev/null
+fi
 
 # 3. 清理 nginx conf.d 中的 qweather.conf
 QW_NGINX_CONF="/usr/trim/nginx/conf/conf.d/qweather.conf"

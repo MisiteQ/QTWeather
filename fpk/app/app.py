@@ -1,5 +1,5 @@
 """
-时钟天气 QTWeather（com.qweather.widget）- Flask 后端服务（FPK 版本）v3.0.4
+时钟天气 QTWeather（com.qweather.widget）- Flask 后端服务（FPK 版本）v3.0.5
 天气源：中国天气网（国内直连）→ Open-Meteo → wttr.in 逐级兜底（无需 API Key）
 
 注入机制（v2.1.0，零 /usr/trim/www 写入）：
@@ -35,10 +35,14 @@ import zipfile
 import subprocess
 import threading
 
-# 将本地依赖目录加入路径（FPK 安装时依赖安装到 libs/）
-_LIBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "libs")
-if os.path.isdir(_LIBS_DIR) and _LIBS_DIR not in sys.path:
-    sys.path.insert(0, _LIBS_DIR)
+# 将依赖目录加入路径：v3.0.5 起安装在持久化数据目录（升级不丢失），
+# 同时保留旧版应用目录 libs/ 作为回滚兼容。
+for _libs_dir in (
+        os.path.join(os.environ.get(
+            "TRIM_PKGVAR", "/vol1/@appdata/com.qweather.widget"), "libs"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "libs")):
+    if os.path.isdir(_libs_dir) and _libs_dir not in sys.path:
+        sys.path.insert(0, _libs_dir)
 
 import requests
 from flask import Flask, jsonify, request, send_from_directory, Response
@@ -74,7 +78,7 @@ TIMEOUT = 10
 
 # 版本更新检查（只检查，不自动下载/安装）
 RELEASE_API = "https://api.github.com/repos/MisiteQ/QTWeather/releases/latest"
-APP_VERSION = "3.0.4"
+APP_VERSION = "3.0.5"
 
 # ===== 飞牛路径 =====
 FNOS_WWW_INDEX = "/usr/trim/www/index.html"
