@@ -88,6 +88,14 @@ ensure_deps() {
 
 case "$1" in
     start)
+        # 并发保护：安装/升级回调与应用中心可能同时调用 start，
+        # 没有锁时两者会互相 pkill 对方的 gunicorn。拿到锁的负责启动，
+        # 另一个直接返回（服务由前者拉起）。
+        if command -v flock >/dev/null 2>&1; then
+            exec 9>"/tmp/com.qweather.widget.start.lock"
+            flock -n 9 || exit 0
+        fi
+
         # 彻底清理所有旧 gunicorn 进程（防止端口冲突导致启动失败）
         pkill -f "gunicorn.*${SOCKET_FILE}" 2>/dev/null
         pkill -f "gunicorn.*127.0.0.1:${SERVICE_PORT}" 2>/dev/null

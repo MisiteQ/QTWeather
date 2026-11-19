@@ -112,8 +112,17 @@ fi
 # 5. 清理注入页目录
 rm -rf "/vol1/@appdata/${TRIM_APPNAME}/desktop" 2>/dev/null
 
-# 6. 重启 nginx 恢复桌面路由（去掉孤儿 location 块）
-systemctl restart trim_nginx 2>/dev/null
-sleep 3
+# 6. reload nginx 恢复桌面路由（去掉孤儿 location 块）
+#    只用 reload（SIGHUP 优雅重载），绝不用 restart：restart 会 stop 整个
+#    nginx，把飞牛桌面页、以及浏览器里所有在途请求（包括应用中心的
+#    “升级/卸载”请求）一起切断，表现为桌面断链、前端弹“Request failed”。
+#    reload 同样会触发 trim_recover 按 ng.conf.zip（上面已删掉本应用条目）
+#    重建 conf.d，因此我们的配置同样会消失。
+systemctl reload trim_nginx 2>/dev/null
+for i in 1 2 3; do
+    [ -f "${QW_NGINX_CONF}" ] || break
+    sleep 1
+    systemctl reload trim_nginx 2>/dev/null
+done
 
 exit 0

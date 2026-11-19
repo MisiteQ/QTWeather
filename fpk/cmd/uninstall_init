@@ -1,15 +1,15 @@
 #!/bin/bash
 # 卸载前：通知正在运行的服务自清理注入（必须在停服前完成）：
-# 从加密 ng.conf.zip 删除本应用配置、删除 conf.d、重启 nginx 恢复原状、
+# 从加密 ng.conf.zip 删除本应用配置、删除 conf.d、reload nginx 恢复原状、
 # 删除注入页。否则桌面路由会永久指向已删除的文件。
+# 注：/api/uninstall 内部已用 reload（SIGHUP 优雅重载）并在返回前校验
+# conf.d 已消失，因此这里不再额外等待。
 
 SOCKET_FILE="${TRIM_APPDEST}/app.sock"
 
 if [ -S "${SOCKET_FILE}" ]; then
     curl -s --unix-socket "${SOCKET_FILE}" \
         -X POST "http://127.0.0.1/api/uninstall" > /dev/null 2>&1
-    # 等待 nginx 重启恢复完成
-    sleep 5
 fi
 
 # 再停止应用服务

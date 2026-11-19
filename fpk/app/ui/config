@@ -8,8 +8,7 @@
             "gatewaySocket": "app.sock",
             "gatewayPrefix": "/app/com-qweather-widget",
             "url": "/app/com-qweather-widget",
-            "allUsers": true,
-            "control": {"accessPerm": "editable"}
+            "allUsers": true
         }
     }
 }

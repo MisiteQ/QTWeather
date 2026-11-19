@@ -1,17 +1,26 @@
 #!/bin/bash
 # 升级后启动服务。依赖统一由 cmd/main 管理（v3.0.5 起安装在持久化数据目录，
-# 已安装则直接跳过），这里不再重复 pip install，缩短升级空窗期。
+# 已安装则直接跳过），这里不重复 pip install，缩短升级空窗期。
+#
+# v3.0.7 修复两处：
+#   1) 用 ${SCRIPT_DIR}/main 而不是 ${APP_DIR}/cmd/main —— 升级回调里的
+#      TRIM_APPDEST 指向 target（/vol1/@appcenter/<app>，其中只有 app.py
+#      等运行文件，没有 cmd/），此前该路径永远不存在，回调实际从未启动
+#      服务，应用中心升级 5 秒后还要自己再 start 一次。
+#   2) 后台启动并立即返回：应用中心的升级请求有前端超时限制，若在这里
+#      同步等待依赖安装/健康检查，就会弹
+#      “Request failed, please try again later”（后台任务其实还在继续）。
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-APP_DIR="${TRIM_APPDEST:-$(dirname -- "${SCRIPT_DIR}")}"
+MAIN="${SCRIPT_DIR}/main"
 
-# 后台启动并立即返回：应用中心的升级请求有前端超时限制，
-# 若在这里同步等待依赖安装/健康检查，就会弹
-# “Request failed, please try again later”（后台任务其实还在继续）。
-if [ -x "${APP_DIR}/cmd/main" ]; then
-    if command -v setsid >/dev/null 2>&1; then
-        setsid nohup "${APP_DIR}/cmd/main" start >/dev/null 2>&1 &
-    else
-        nohup "${APP_DIR}/cmd/main" start >/dev/null 2>&1 &
+if [ -x "${MAIN}" ]; then
+    # 已经在跑（应用中心可能同时启动）就不要再起一次，避免互相 pkill
+    if ! "${MAIN}" status >/dev/null 2>&1; then
+        if command -v setsid >/dev/null 2>&1; then
+            setsid nohup "${MAIN}" start >/dev/null 2>&1 &
+        else
+            nohup "${MAIN}" start >/dev/null 2>&1 &
+        fi
     fi
 fi
 

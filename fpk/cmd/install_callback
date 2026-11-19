@@ -1,16 +1,26 @@
 #!/bin/bash
-# 安装后立即启动服务，确保桌面网关能找到 app.sock。
+# 安装后启动服务，确保桌面网关能找到 app.sock。
+#
+# v3.0.7：
+#   1) 用 ${SCRIPT_DIR}/main —— 安装/升级回调里的 TRIM_APPDEST 指向 target
+#      （只有 app.py 等运行文件，没有 cmd/），此前用 ${APP_DIR}/cmd/main
+#      永远找不到脚本，回调实际从未启动过服务，应用中心随后还要自己再
+#      start 一次（界面上因此出现“安装完成，但服务启动失败”）。
+#   2) 后台启动并立即返回 —— 依赖安装 + 健康检查最长 20 秒，超过应用中心
+#      前端请求超时会弹“Request failed, please try again later”。
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-APP_DIR="${TRIM_APPDEST:-$(dirname -- "${SCRIPT_DIR}")}"
-PKGVAR_DIR="${TRIM_PKGVAR:-${APP_DIR}/var}"
 TEMP_LOG_FILE="${TRIM_TEMP_LOGFILE:-/tmp/com.qweather.widget.log}"
-if [ -x "${APP_DIR}/cmd/main" ]; then
-	"${APP_DIR}/cmd/main" start
-	if [ $? -eq 0 ]; then
-		echo "安装完成，时钟天气 QTWeather 服务已启动。" > "${TEMP_LOG_FILE}"
-		exit 0
-	fi
+MAIN="${SCRIPT_DIR}/main"
+
+if [ -x "${MAIN}" ]; then
+    if command -v setsid >/dev/null 2>&1; then
+        setsid nohup "${MAIN}" start >/dev/null 2>&1 &
+    else
+        nohup "${MAIN}" start >/dev/null 2>&1 &
+    fi
+    echo "安装完成，时钟天气 QTWeather 服务正在后台启动。" > "${TEMP_LOG_FILE}"
+else
+    echo "安装完成，但未找到启动脚本 ${MAIN}。" > "${TEMP_LOG_FILE}"
 fi
 
-echo "安装完成，但时钟天气 QTWeather 服务启动失败，请查看 ${PKGVAR_DIR}/app.log。" > "${TEMP_LOG_FILE}"
 exit 0

@@ -1,5 +1,5 @@
 """
-时钟天气 QTWeather（com.qweather.widget）- Flask 后端服务（FPK 版本）v3.0.6
+时钟天气 QTWeather（com.qweather.widget）- Flask 后端服务（FPK 版本）v3.0.8
 天气源：中国天气网（国内直连）→ Open-Meteo → wttr.in 逐级兜底（无需 API Key）
 
 注入机制（v2.1.0，零 /usr/trim/www 写入）：
@@ -78,7 +78,7 @@ TIMEOUT = 10
 
 # 版本更新检查（只检查，不自动下载/安装）
 RELEASE_API = "https://api.github.com/repos/MisiteQ/QTWeather/releases/latest"
-APP_VERSION = "3.0.6"
+APP_VERSION = "3.0.8"
 
 # ===== 飞牛路径 =====
 FNOS_WWW_INDEX = "/usr/trim/www/index.html"
@@ -605,18 +605,20 @@ def _desktop_index_ok():
 def _nginx_reload():
     # 注意：reload 会触发 trim_recover 恢复 conf.d，但我们的配置同时
     # 存在于 ng.conf.zip，所以恢复后配置仍然在。
+    #
+    # v3.0.7：本应用任何情况下都不再 restart nginx。restart 会 stop+start
+    # 整个 nginx —— 浏览器里所有在途请求（包括应用中心的“升级”请求）都会
+    # 被切断，前端拿不到 JSON 就显示“无法更新 / Request failed, please
+    # try again later”，桌面页也会断链一次。reload 是 SIGHUP 优雅重载，
+    # 不断连接，且同样触发 trim_recover 从 ng.conf.zip 恢复 conf.d。
     return _run_cmd(["systemctl", "reload", "trim_nginx"], timeout=30)
 
 
-def _nginx_restart():
-    return _run_cmd(["systemctl", "restart", "trim_nginx"], timeout=60)
-
-
 # ===== 完整安装/修复 =====
-_last_restart = 0.0
-# conf.d 修复失败连续计数：reload/restart 后内容仍不符时不再无限重试
-# （每次 restart 都会断开飞牛桌面页 WebSocket），连续失败达到上限后停止
-# 自动修复，仅在用户手动触发 /api/inject（allow_restart 重置计数）时重试。
+_last_repair = 0.0
+# conf.d 修复失败连续计数：reload 后内容仍不符时不再无限重试。
+# v3.0.7：兜底动作由 restart 改为“稍后再 reload”，绝不会 stop nginx
+# （restart 会切断桌面页与浏览器里所有在途请求）。
 _confd_repair_attempts = 0
 _CONFD_REPAIR_MAX = 3
 
@@ -634,8 +636,8 @@ def _ensure_settings_file():
         pass
 
 
-def _ensure_installed(allow_restart=True):
-    global _last_restart, _confd_repair_attempts
+def _ensure_installed(allow_repair=True):
+    global _last_repair, _confd_repair_attempts
     detail = []
 
     # 0. 默认 settings.json（首次启动）
@@ -662,35 +664,36 @@ def _ensure_installed(allow_restart=True):
         detail.append("ng.conf.zip")
 
     # 3. 运行中 nginx 的 conf.d：缺失或内容不符时让 nginx 重新加载配置。
-    #    这里用 reload 而非 restart —— 实测 restart 会直接杀掉飞牛桌面页的
-    #    WebSocket 连接（桌面反复断链、要刷新多次才能恢复），而 reload 是
-    #    优雅重载，现有连接不受影响；并且 reload 同样会触发 trim_recover
-    #    从 ng.conf.zip 恢复 conf.d（第 2 步已把期望内容写进 zip），
-    #    实测单独一次 reload 即可既恢复文件、又让 nginx 载入新配置。
-    #    reload 之后内容仍不符，才退回 restart 兜底。
+    #    这里只用 reload（SIGHUP 优雅重载），绝不 restart —— 实测 restart
+    #    会 stop 整个 nginx，直接杀掉飞牛桌面页的 WebSocket 连接，也会切断
+    #    应用中心正在等待的“升级”HTTP 请求（前端因此显示“无法更新 /
+    #    Request failed, please try again later”，而后台其实还在升级）。
+    #    reload 同样会触发 trim_recover 从 ng.conf.zip 恢复 conf.d
+    #    （第 2 步已把期望内容写进 zip），一次 reload 即可既恢复文件、
+    #    又让 nginx 载入新配置。reload 后仍不符时，交给下一个 30 秒巡检
+    #    周期再试，连续失败达到上限则暂停自动修复，等手动 /api/inject。
     confd_current = _read_file(QW_NGINX_CONF)
     if confd_current == QW_NGINX_CONF_CONTENT:
         # 内容已一致：重置连续失败计数
         _confd_repair_attempts = 0
-    elif allow_restart and time.time() - _last_restart > 180:
+    elif allow_repair and time.time() - _last_repair > 180:
         if _confd_repair_attempts >= _CONFD_REPAIR_MAX:
             # 已连续失败 N 次（可能是 trim_recover 损坏等深层问题），
-            # 停止无限 restart（每次都会断桌面 WebSocket），等待手动介入
+            # 停止自动修复，等待手动介入
             detail.append("confd-repair-suspended")
         else:
             _confd_repair_attempts += 1
             _nginx_reload()
             time.sleep(2)
-            if _read_file(QW_NGINX_CONF) != QW_NGINX_CONF_CONTENT:
-                _nginx_restart()
-                time.sleep(3)
-                detail.append("nginx-restart")
-            else:
+            if _read_file(QW_NGINX_CONF) == QW_NGINX_CONF_CONTENT:
                 detail.append("nginx-reload")
                 _confd_repair_attempts = 0
-            _last_restart = time.time()
+            else:
+                # 不再 restart 兜底：下次巡检继续 reload
+                detail.append("nginx-reload-retry")
+            _last_repair = time.time()
     else:
-        detail.append("restart-rate-limited")
+        detail.append("repair-rate-limited")
 
     return True, ",".join(detail) or "already-ok"
 
@@ -704,8 +707,14 @@ def _do_uninstall():
         return False, f"ng.conf.zip 清理失败: {e}"
 
     _run_cmd(["rm", "-f", QW_NGINX_CONF])
-    _nginx_restart()
-    time.sleep(3)
+    # v3.0.7：同样用 reload 代替 restart —— 卸载不该把整个飞牛桌面踢下线。
+    # reload 会触发 trim_recover 按 ng.conf.zip（已删掉本应用条目）重建
+    # conf.d，因此我们的配置同样会消失；若首次 reload 后文件仍在，再补一次。
+    _nginx_reload()
+    time.sleep(2)
+    if os.path.exists(QW_NGINX_CONF):
+        _nginx_reload()
+        time.sleep(2)
     _run_cmd(["rm", "-rf", DESKTOP_DIR])
     return True, "已卸载注入"
 
@@ -764,7 +773,7 @@ def inject():
     # 手动触发视为新的修复尝试：重置 conf.d 连续失败计数
     global _confd_repair_attempts
     _confd_repair_attempts = 0
-    ok, msg = _ensure_installed(allow_restart=True)
+    ok, msg = _ensure_installed(allow_repair=True)
     if not ok:
         return jsonify({"status": "error", "message": msg}), 500
     _start_maintenance()

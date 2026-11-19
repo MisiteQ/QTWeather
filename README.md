@@ -1,7 +1,7 @@
 # 时钟天气 QTWeather
 
 <p>
-  <img alt="Version" src="https://img.shields.io/badge/version-3.0.6-blue">
+  <img alt="Version" src="https://img.shields.io/badge/version-3.0.8-blue">
   <img alt="fnOS" src="https://img.shields.io/badge/fnOS-x86%20%7C%20arm-success">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-orange">
   <img alt="Data" src="https://img.shields.io/badge/data-中国天气网%20%7C%20Open--Meteo-green">
@@ -9,7 +9,7 @@
 
 飞牛 fnOS 桌面**时钟 + 天气**小部件（FPK 原生应用）：直接注入飞牛桌面显示，**无窗口标题栏**。卡片为大号时钟（时：分 + 秒 + 公历 + 农历干支）与实时天气 / 未来 5 天预报，**两个模块可独立开关**；点击飞牛「已安装」中的应用图标打开**设置中心**（独立窗口），支持全球城市搜索、自动刷新间隔、桌面自由拖动、卡片背景透明度（**0% 可全透明**，文字 / 图标始终不透明）、文字与图标配色、**字号 50%–200%** 与**自定义字体上传**（ttf/otf/woff/woff2）。设置保存到 NAS 后卡片**数秒内热生效，无需刷新桌面**；设置中心内置「关于」页并可向 GitHub Releases **自动检查新版本（仅检查，不自动安装）**。数据来源 [中国天气网](http://www.weather.com.cn/)（国内直连、免费、**无需 API Key**），并以 [Open-Meteo](https://open-meteo.com/) 与 wttr.in 逐级兜底；中国天气网接口要求 Referer 且不支持 CORS，天气请求统一经 NAS 后端同源代理。
 
-- 当前版本：**v3.0.6**
+- 当前版本：**v3.0.8**
 - 作者：**Misite齊**（[github.com/MisiteQ](https://github.com/MisiteQ)）
 - 仓库：[github.com/MisiteQ/QTWeather](https://github.com/MisiteQ/QTWeather)
 - 适用平台：fnOS **x86 + arm**（最低系统版本 1.0.0）
@@ -46,7 +46,7 @@ fnOS 的 nginx 内置 `trim_recover` 模块：直接修改 `/usr/trim/www` 会�
 1. 小组件注入页放在应用数据目录（`/vol1/@appdata/com.qweather.widget/desktop/index.html`），内容为系统 `index.html` + 一行 `<script src="/qweather-widget.js">`
 2. `conf.d/qweather.conf` 用 `alias` 把 `GET /` 与 `GET /login` 指向该注入页
 3. `ng.conf.zip` 的 ZipCrypto 密钥已通过 bkcrack 已知明文攻击恢复，应用把 `qweather.conf` 以相同密钥加密后写进 `ng.conf.zip`，nginx 每次恢复都会「恢复出」我们的配置，注入天然持久
-4. 维护线程低频（30s）巡检，全部只在缺失时补写；`conf.d` 缺失或内容不符时**优先 `systemctl reload trim_nginx`**（SIGHUP 优雅重载，不断开桌面页 WebSocket，且 reload 同样触发 `trim_recover` 从 `ng.conf.zip` 恢复 `conf.d`），仅当 reload 后内容仍不符才退回 `restart` 兜底——避免安装 / 升级 / 自愈时把飞牛桌面「断链」
+4. 维护线程低频（30s）巡检，全部只在缺失时补写；`conf.d` 缺失或内容不符时**只 `systemctl reload trim_nginx`**（SIGHUP 优雅重载，不断开桌面页 WebSocket，且 reload 同样触发 `trim_recover` 从 `ng.conf.zip` 恢复 `conf.d`）。**任何情况下都不 `restart` nginx**：实测 `restart` 会 stop+start 整个 nginx，把桌面页连接和浏览器里所有在途请求（包括应用中心正在等待的「升级」请求）一起切断——这正是「升级必弹 Request failed + 桌面断开一下」的来源
 5. **永远不写 `/usr/trim/www` 下任何文件**
 
 ### 层级策略
@@ -82,7 +82,7 @@ https://github.com/MisiteQ/FnDepot
 
 ### 方式二：手动安装 FPK
 
-1. 到 [Releases](https://github.com/MisiteQ/QTWeather/releases) 下载 `com.qweather.widget-3.0.6-x86.fpk`（arm 设备下载 `com.qweather.widget-3.0.6-arm.fpk`）
+1. 到 [Releases](https://github.com/MisiteQ/QTWeather/releases) 下载 `com.qweather.widget-3.0.8-x86.fpk`（arm 设备下载 `com.qweather.widget-3.0.8-arm.fpk`）
 2. 飞牛 OS → **应用中心** → 左下角 **手动安装** → 选择 fpk 文件
 3. 安装完成后，时钟天气卡片即显示在飞牛桌面上（若未显示，强制刷新桌面 `Ctrl+Shift+R`）；点击「已安装」中的应用图标可打开设置中心
 
@@ -111,7 +111,7 @@ python3 build_fp.py
 bash build.sh
 ```
 
-> 双架构发布：分别将 `platform` 设为 `x86` 和 `arm` 各打包一次，产物为 `com.qweather.widget-3.0.6-x86.fpk` 和 `com.qweather.widget-3.0.6-arm.fpk`。
+> 双架构发布：分别将 `platform` 设为 `x86` 和 `arm` 各打包一次，产物为 `com.qweather.widget-3.0.8-x86.fpk` 和 `com.qweather.widget-3.0.8-arm.fpk`。
 
 或直接运行：
 
@@ -164,6 +164,8 @@ fpk/
 
 | 版本 | 内容 |
 |---|---|
+| v3.0.8 | **版本号提升，用于和此前误装的 3.0.7 旧构建区分**。排查发现：设备上所谓「已装 3.0.7」包里 `cmd/` 仍是旧脚本——应用中心返回的安装文案仍是旧版那句「安装完成，但……服务启动失败」，说明 v3.0.7 的修复从未真正生效。本次修复链条（与 v3.0.7 内容一致，现已真正落盘）：**fnOS 覆盖安装（升级）会顺带执行卸载钩子**，而旧版 `uninstall_callback` 里是 `systemctl restart trim_nginx`，于是在升级第 7 秒把 nginx 整体 stop→start，切断浏览器里正在等待结果的升级请求与桌面页 WebSocket，前端弹「无法更新 / Request failed, please try again later」，后台升级却照常完成（所以「点知道了还在装、刷新就好」）。现已改为 SIGHUP 优雅 `reload`，连接不断，配置同样生效；同时修正安装/升级回调的启动脚本路径与后台启动、`flock` 并发保护、移除 `ui/config` 的 `control.accessPerm`。旁证：17:00:36 我们的进程已 `Shutting down: Master`，17:00:42 的重启不可能由应用发起；手动 `pkill` 应用进程等待 14 秒，nginx 亦未重启（仅 `trim_sac` 报 `entryChange`），排除「socket 消失触发系统重启」这一假设 |
+| v3.0.7 | **彻底修复「每次升级都弹无法更新 / Request failed, please try again later」与升级瞬间桌面断链**。抓取 fnOS 系统日志确认根因链：升级开始约 6~7 秒、文件替换刚结束时，`trim_nginx` 被完整 stop+start 一次（`Stopping` → 76ms 后 `Starting`），浏览器里正在等待结果的升级请求与桌面页 WebSocket 被同时切断——所以点「知道了」后后台仍在正常升级、桌面刷新即恢复；v3.0.6 把原因归为「升级回调同步等待超过前端超时」并不完整。旁证：同一台 NAS 上 fnmonitor（root + TCP 端口）、qdd（root + 网关 socket）、marvis-app / fnzip（package + 网关 socket）的多次升级都不重启 nginx，本应用 5 次升级 5 次重启。本次改动：①应用内**任何场景都不再 `systemctl restart trim_nginx`**——维护自愈、卸载注入全部改为 SIGHUP 优雅 `reload`（同样触发 `trim_recover` 从 `ng.conf.zip` 恢复 `conf.d`，连接不断），连续失败改为下个巡检周期重试而非 restart 兜底；②`uninstall_callback` 同改 `reload`，并去掉无谓的 3 秒阻塞；③安装 / 升级回调改为后台启动并立即返回，同时**修正启动脚本路径**（原先取 `target` 下的 `cmd/main`，该路径并不存在，回调实际从未启动过服务，界面才会出现「安装完成，但服务启动失败」）；④`cmd/main start` 增加 `flock` 并发保护，避免回调与应用中心重复启动互相 `pkill`；⑤`ui/config` 移除 `control.accessPerm`——应用访问权限的重新应用会触发 fnOS 权限 / 安全模块重启 nginx，而同为 root 运行且使用网关 socket 的 qdd 没有该字段，其两次升级从未重启 nginx |
 | v3.0.6 | **修复应用中心每次升级都弹「无法更新 / Request failed, please try again later」**：升级回调原先同步调用启动脚本，并等待依赖安装与最多 20 秒健康检查，超过应用中心前端请求超时时间，导致前端提示失败（后台实际仍在继续安装）；现改为后台启动服务并立即返回，升级请求快速完成，服务随后自动就绪 |
 | v3.0.5 | **升级体验优化**：Python 运行依赖（Flask / requests / gunicorn）从应用目录迁移到持久化数据目录（与 `settings.json` 同级），fnOS 升级替换应用目录时依赖不再丢失，后续升级无需重新 `pip install`；升级回调移除重复的依赖安装，只负责启动服务；首次从旧版升级自动迁移已有依赖。升级空窗期由数十秒 ~ 数分钟缩短到数秒，减少应用中心「更新中」等待与网关短暂断连 |
 | v3.0.4 | **天气源切换为国内中国天气网**：解决国内网络访问 Open-Meteo 长期 TLS 握手超时、卡片一直显示「天气不可用」的问题。天气源改为「中国天气网（国内直连、免费无需 Key）→ Open-Meteo → wttr.in」逐级兜底；中国天气网接口要求 Referer 且不支持 CORS，小组件与设置中心预览统一经 NAS 后端同源代理获取；后端把各源结果归一为原 Open-Meteo 字段结构，5 天预报与体感/湿度/风速/气压展示保持不变；天气获取失败不再把原始网络报错显示到卡片，改为可读提示 |
